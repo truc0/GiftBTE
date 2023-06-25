@@ -4,3 +4,7 @@ target_include_directories(TransientBTE PUBLIC "/home/yuehu/Downloads" "${Static
 
 target_link_libraries(TransientBTE PUBLIC BTEBand BTEBoundaryCondition BTEMesh BTEAngle BTEutility
         PRIVATE "${PETSC_LIBRARIES}" MPI::MPI_CXX "${HYPRE_LIB_PATH}")
+
+if (USE_GPU)
+    target_link_libraries(TransientBTE ${CUDA_LIBRARIES})
+endif()

@@ -584,15 +584,12 @@ Transient::Transient(BTEMesh *mesh, BTEBoundaryCondition *bcs, BTEBand *bands, B
 
 
 void Transient::_set_initial(int Use_Backup) const {
-    for (int i = 0; i < numCell; ++i) {
-        //temperature[i]= 0;//cos(2*PI/L_x*elementCenterX[i]);
-    }
     for (int iband_local = 0; iband_local < numBandLocal; iband_local++)
     {
+        int iband = iband_local * (ceil(double(numProc) / double(numDirection))) + worldRank / numDirection;
         for (int inf_local = 0; inf_local < numDirectionLocal; inf_local++)
         {
             int inf = ((inf_local) * numProc + worldRank) % numDirection;
-            int iband = iband_local * (ceil(double(numProc) / double(numDirection))) + worldRank / numDirection;
             for (int kk = 0; kk < numCell; kk++)
             {
                 energyDensity[iband_local][inf_local][kk]= temperature[kk] * heatCapacity[matter[kk]][iband][inf];
