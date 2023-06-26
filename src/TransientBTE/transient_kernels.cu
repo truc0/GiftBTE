@@ -5,13 +5,13 @@
 #include "TransientBTE/transient.h"
 #include <algorithm>
 #include <iomanip>
-#include <chrono>
+
+// DEBUG: remove it
+#define USE_GPU
 
 Transient::~Transient() {
-
     delete[] numCellLocalList;
     delete[] startCellList;
-
 
     for (int i = 0; i < numBandLocal; ++i) {
         for (int j = 0; j < numDirectionLocal; ++j) {
@@ -20,7 +20,6 @@ Transient::~Transient() {
         delete[]  energyDensity[i];
     }
     delete[]  energyDensity;
-
 
     delete[] energyDensityVertex;
     delete[] eboundLocal;
@@ -55,9 +54,7 @@ Transient::~Transient() {
     }
     delete[] boundaryTempMacro;
 
-
     delete[] Re;
-
 
     delete[] elementIndex;
     delete[] elementFaceSize;
@@ -160,6 +157,7 @@ Transient::~Transient() {
     delete[] directionZ;
 
     cout << "~StaticBTESynthetic is activated !!" << endl;
+
 #ifdef USE_GPU
 
 #else
@@ -210,17 +208,15 @@ Transient::Transient(BTEMesh *mesh, BTEBoundaryCondition *bcs, BTEBand *bands, B
         numDirectionLocal = 1;
         numBandLocal = numBand / (num_proc / numDirection);
     }
-    numCellLocal =
-            numCell / num_proc;
+    numCellLocal = numCell / num_proc;
     if (world_rank < numCell % num_proc) {
         numCellLocal = numCellLocal + 1;
         startCell = numCellLocal * world_rank;
     } else {
         startCell = (numCell / num_proc + 1) * (numCell % num_proc) +
                     (numCell / num_proc) * (world_rank - numCell % num_proc);
-
-
     }
+#ifndef USE_GPU
     numCellLocalList = new int[num_proc];
     for (int i = 0; i < num_proc; ++i) {
         if (i < numCell % num_proc) {
@@ -233,6 +229,11 @@ Transient::Transient(BTEMesh *mesh, BTEBoundaryCondition *bcs, BTEBand *bands, B
                 cout << numCellLocalList[i] << endl;
         }
     }
+#else
+    int threshold = numCell % num_proc;
+    cudaMalloc(&numCellLocalList, num_proc * sizeof(int));
+    
+#endif
     startCellList = new int[num_proc];
     for (int i = 0; i < num_proc; ++i) {
         if (i < numCell % num_proc) {
@@ -284,14 +285,12 @@ Transient::Transient(BTEMesh *mesh, BTEBoundaryCondition *bcs, BTEBand *bands, B
     gradientFaceY = new double[numFace * 2];
     gradientFaceZ = new double[numFace * 2];
 
-
     boundaryTempMacro = new double *[numBound];
     for (int i = 0; i < numBound; ++i) {
         boundaryTempMacro[i] = new double[2];
     }
 
     Re = new double[numCell];
-
 
     elementIndex = new int[numCell];
     for (int i = 0; i < numCell; ++i) {
@@ -490,7 +489,6 @@ Transient::Transient(BTEMesh *mesh, BTEBoundaryCondition *bcs, BTEBand *bands, B
         nodeZ[i] = mesh->Nodes[i].z;
     }
 
-
     matter = new int[numCell];
     for (int i = 0; i < numCell; ++i) {
         matter[i] = mesh->Elements[i].matter;
@@ -500,7 +498,6 @@ Transient::Transient(BTEMesh *mesh, BTEBoundaryCondition *bcs, BTEBand *bands, B
     for (int i = 0; i < numofMatter; ++i) {
         kappaBulk[i] = bands->kappabulk[i];
         capacityBulk[i] = bands->kappabulk[i];
-        //cout<<kappaBulk[i]<<endl;
     }
 
     groupVelocityX = new double **[numofMatter];
@@ -533,7 +530,6 @@ Transient::Transient(BTEMesh *mesh, BTEBoundaryCondition *bcs, BTEBand *bands, B
         }
     }
 
-
     for (int imatter = 0; imatter < numofMatter; ++imatter) {
         for (int i = 0; i < numBand; ++i) {
             for (int j = 0; j < numDirection; ++j) {
@@ -549,7 +545,6 @@ Transient::Transient(BTEMesh *mesh, BTEBoundaryCondition *bcs, BTEBand *bands, B
         }
     }
 
-
     directionX = new double[numDirection];
     directionY = new double[numDirection];
     directionZ = new double[numDirection];
@@ -558,8 +553,6 @@ Transient::Transient(BTEMesh *mesh, BTEBoundaryCondition *bcs, BTEBand *bands, B
         directionY[j] = angles->direction[j].y;
         directionZ[j] = angles->direction[j].z;
     }
-
-
 }
 
 
@@ -746,15 +739,9 @@ void Transient::_set_bound_ee_1() const {
                                     iband * numDirection * numBound * 2 + inf * numBound * 2 + ib * 2 + icell];
                         }
                     }
-
                 }
-
-
             }
-            //cout<<endl;
-            for (int i = 0; i < numBound * 2; ++i) {
-                // cout<<eboundLocal[iband_local*numBound*2+i]<<endl;
-            }
+
             MPI_Allgather(eboundLocal + iband_local * numBound * 2,
                           numBound * 2,
                           MPI_DOUBLE,
@@ -881,8 +868,6 @@ void Transient::copy() const {
         heatFluxXGlobal[i] = 0;
         heatFluxYGlobal[i] = 0;
         heatFluxZGlobal[i] = 0;
-
-
     }
     for (int i = 0; i < numBandLocal * numBound * 2; ++i) {
         eboundLocal[i] = 0;
@@ -892,7 +877,6 @@ void Transient::copy() const {
 void Transient::_delete_cell_matrix() const {
 
     for (int i = 0; i < numCell; ++i) {
-
         for (int j = 0; j < 3; ++j) {
             delete[] CellMatrix[i][j];
         }
@@ -909,35 +893,28 @@ void Transient::_set_cell_matrix_larger() {
             CellMatrix[i][j] = new double[elementNeighborList[i].size()];
         }
     }
-
 }
 
 void Transient::_get_CellMatrix_larger() const {
     if (dimension == 2) {
         for (int i = 0; i < numCell; ++i) {
-
             vector<double> d1(elementNeighborList[i].size(), 0);
             vector<vector<double>> J1;
             J1.resize(elementNeighborList[i].size());
             for (int j = 0; j < elementNeighborList[i].size(); ++j) {
                 J1[j].resize(2);
             }
-
             for (int j = 0; j < elementNeighborList[i].size(); ++j) {
-
                 J1[j][0] = (1.0 / L_x * (elementCenterX[elementNeighborList[i][j]] - elementCenterX[i]));
                 J1[j][1] = (1.0 / L_x * (elementCenterY[elementNeighborList[i][j]] - elementCenterY[i]));
                 //d1[nump] = 1.0/L_x * (energyDensity[iband_local][inf_local][elementFaceNeighobr[j+i*6]] - energyDensity[iband_local][inf_local][i]);
-
             }
             if (elementNeighborList[i].size() > 2) {
                 Get_inverse_2D(CellMatrix[i], J1);
             }
-
         }
     } else if (dimension == 3) {
         for (int i = 0; i < numCell; ++i) {
-
             vector<double> d1(elementNeighborList[i].size(), 0);
             vector<vector<double>> J1;
             J1.resize(elementNeighborList[i].size());
@@ -946,18 +923,14 @@ void Transient::_get_CellMatrix_larger() const {
             }
 
             for (int j = 0; j < elementNeighborList[i].size(); ++j) {
-
                 J1[j][0] = (1.0 / L_x * (elementCenterX[elementNeighborList[i][j]] - elementCenterX[i]));
                 J1[j][1] = (1.0 / L_x * (elementCenterY[elementNeighborList[i][j]] - elementCenterY[i]));
                 J1[j][2] = (1.0 / L_x * (elementCenterZ[elementNeighborList[i][j]] - elementCenterZ[i]));
-
                 //d1[nump] = 1.0/L_x * (energyDensity[iband_local][inf_local][elementFaceNeighobr[j+i*6]] - energyDensity[iband_local][inf_local][i]);
-
             }
             if (elementNeighborList[i].size() > 3) {
                 Get_inverse_3D(CellMatrix[i], J1);
             }
-
         }
     }
 }
@@ -1193,8 +1166,8 @@ void Transient::_get_explicit_Re(int itime, int spatial_order, int Use_limiter, 
             double h = heatindex * heatRatio[matter[ie]][iband][inf] * elementHeatSource[ie];
             Re[ie] -= h;
         }
-    }
 
+    }
     for (int ib = 0; ib < numBound; ++ib) {
         for (int icell = 0; icell < 2; ++icell) {
             int ie = boundaryCell[ib][icell];
