@@ -300,7 +300,6 @@ int main(int argc, char **argv)
     angles = new BTEAngle(Num_Theta, Num_Phi, Dimension_Material, Angle_method);
 
 #ifndef USE_GPU
-
     SolutionAll solutionAll(distributeMesh,bcs,bands,angles,num_proc,world_rank);
     solutionAll._set_initial(distributeMesh,bands,angles);
     if(State != "Transient")
@@ -325,8 +324,22 @@ int main(int argc, char **argv)
     //TransientFourier fourierTransient(mesh, bcs, bands,num_proc, world_rank);
     //fourierTransient._solve();
 #else
-    StaticBTESolver solver(mesh, bcs, bands, angles, num_proc, world_rank, Num_Theta, Num_Phi);
-    solver.solve(Use_Backup, Num_Max_Iter, Use_Sythetic, Use_Limiter, error_temp_limit, error_flux_limit);
+    SolutionAll solutionAll(distributeMesh,bcs,bands,angles,num_proc,world_rank);
+    solutionAll._set_initial(distributeMesh,bands,angles);
+    if(State != "Transient")
+    {
+        solutionAll._Fourier_Solver(distributeMesh,bcs,bands,num_proc,world_rank);
+        MPI_Barrier(MPI_COMM_WORLD);
+        distributeMesh->_build_BTEMesh(Dimension_Geometry, L_x, L_y, L_z,bands,bcs,heatfile, Uniform_heat,Name_multiscale_File);
+        MPI_Barrier(MPI_COMM_WORLD);
+        solutionAll._BTE_Solver(distributeMesh,bcs,bands,angles,num_proc,world_rank,Use_Backup,
+                                Num_Max_Iter,Order,Method,Matrix_solver,error_temp_limit,error_flux_limit);
+        solutionAll._print_out(distributeMesh);
+    } else
+    {
+        solutionAll._Transient_BTE_Solver(distributeMesh,bcs,bands,angles,num_proc,world_rank,Use_Backup,Order,error_temp_limit,error_flux_limit,DeltaT,TotalT
+                ,use_TDTR,pulse_time,repetition_frequency,modulation_frequency,xy_r);
+    }
 #endif
     if (world_rank == 0)
     {

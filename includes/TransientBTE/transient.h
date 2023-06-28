@@ -133,8 +133,13 @@ class Transient
             double *boundaryTemp;
             double *boundaryThermal;
             double *boundaryFlux;
+#ifndef USE_GPU
             int **boundaryCell;
             int **boundaryFace;
+#else
+            int (*boundaryCell)[2];
+            int (*boundaryFace)[2];
+#endif
 
             std::vector<std::vector<int>> boundaryNeighbors;
 

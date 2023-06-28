@@ -15,16 +15,15 @@
 #include "sstream"
 
 #ifndef USE_GPU
-//#include <petscksp.h>
+// #include <petscksp.h>
 #endif
 
 #define PI M_PI
 #define Eps pow(2, -52)
 #define my_min(a, b) (((a) < (b)) ? (a) : (b))
 
-
-
-class vec {
+class vec
+{
 public:
     double x = 0;
     double y = 0;
@@ -53,13 +52,14 @@ public:
     }
 };
 
-class Point {
+class Point
+{
 public:
     double x = 0;
     double y = 0;
     double z = 0;
-    double heat = 0; //yufei adding
-    double initialtemp = 0; //jiaxuan
+    double heat = 0;        // yufei adding
+    double initialtemp = 0; // jiaxuan
     std::vector<int> cells;
     Point &operator=(const Point &rhs) = default;
     explicit Point(double xx = 0, double yy = 0, double zz = 0) : x{xx}, y{yy}, z{zz} {}
@@ -85,7 +85,8 @@ public:
     }
 };
 
-class Face {
+class Face
+{
 public:
     double area;
     int neighbor;
@@ -97,32 +98,36 @@ public:
     int index;
 };
 
-class Cell {
+class Cell
+{
 public:
     double volume;
     int index;
     int matter;
     double heat_source;
-    double initial_temperature;//jiaxuan
+    double initial_temperature; // jiaxuan
     std::vector<Face> faces;
     std::vector<int> vertexes;
     Point center;
 };
 
-class Boundarytemp {
+class Boundarytemp
+{
 public:
     int matter;
     double Temp;
 };
 
-class faces {
+class faces
+{
 public:
     int Boundindex;
     std::vector<int> cellindex;
     std::vector<int> faceindex;
 };
 
-class Boundary {
+class Boundary
+{
 public:
     int index;
     int connection;
@@ -136,7 +141,8 @@ public:
     std::vector<std::vector<double>> trans;
 };
 
-class ContinuousArray {
+class ContinuousArray
+{
 public:
     // double *data{};
     // int dim1{};
@@ -171,7 +177,7 @@ public:
         data = new double[dim1 * dim2];
         std::copy(rhs.data, rhs.data + rhs.dim1 * rhs.dim2, data);
     }
- 
+
     ContinuousArray &operator=(const ContinuousArray &rhs)
     {
         if (this != &rhs)
@@ -215,7 +221,7 @@ public:
 
     double get(int i, int j) const
     {
-      
+
         // return *get_ptr(i, j);
         return data[i * dim2 + j];
     }
@@ -259,18 +265,18 @@ size_t get_host_memory();
 vec Get_gradient_2D(std::vector<std::vector<double>> &J, std::vector<double> &d);
 vec Get_gradient_3D(std::vector<std::vector<double>> &J, std::vector<double> &d);
 void Get_inverse_2D(double **Jfin, std::vector<std::vector<double>> &J);
-void Get_inverse_3D(double **Jfin,std::vector<std::vector<double>> &J);
+void Get_inverse_3D(double **Jfin, std::vector<std::vector<double>> &J);
 #ifndef USE_GPU
 double *_solve_matrix(int *csrRowPtr, int *csrColInd, double *csrVal, std::vector<double> &Re, int N_cell);
 double *_solve_matrix_1(int *csrRowPtr, int *csrColInd, double *csrVal, std::vector<double> &Re, int N_cell);
 double *_solve_matrix(int *RowPtr, int *ColInd, double *Val, double *Re, int N_cell);
 double *_solve_matrix_hypre(int *csrRowPtr, int *csrColInd, double *csrVal, std::vector<double> &Re, int N_cell, int world_rank, int num_proc);
 double *_solve_matrix_hypre(int *RowPtr, int *ColInd, double *Val, double *Re, int N_cell, int world_rank, int num_proc);
-bool ishave(int a,const std::vector<int>& array);
+bool ishave(int a, const std::vector<int> &array);
 
 #endif
 
-#endif 
+#endif
 // STATICBTESOLVER_UTILITY_H
 
 // Iterations = 26
@@ -379,7 +385,6 @@ BTEAngle析构函数被调用
 
 // siyuanyihao
 // 4.77944e-16
-
 
 // GPU result
 // Iteration #42	 Margin per band per cell: Temperature:5.89557e-05

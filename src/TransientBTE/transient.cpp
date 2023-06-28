@@ -7,20 +7,27 @@
 #include <iomanip>
 #include <chrono>
 
-Transient::~Transient() {
+#ifdef USE_GPU
+using std::cout;
+// TODO: enhance this, maybe separate .cu and .cuh
+#include "transient_kernels.cu"
+#endif
+
+Transient::~Transient()
+{
 
     delete[] numCellLocalList;
     delete[] startCellList;
 
-
-    for (int i = 0; i < numBandLocal; ++i) {
-        for (int j = 0; j < numDirectionLocal; ++j) {
-            delete[]  energyDensity[i][j];
+    for (int i = 0; i < numBandLocal; ++i)
+    {
+        for (int j = 0; j < numDirectionLocal; ++j)
+        {
+            delete[] energyDensity[i][j];
         }
-        delete[]  energyDensity[i];
+        delete[] energyDensity[i];
     }
-    delete[]  energyDensity;
-
+    delete[] energyDensity;
 
     delete[] energyDensityVertex;
     delete[] eboundLocal;
@@ -50,14 +57,13 @@ Transient::~Transient() {
     delete[] gradientFaceZ;
     delete[] limit;
 
-    for (int i = 0; i < numBound; ++i) {
+    for (int i = 0; i < numBound; ++i)
+    {
         delete[] boundaryTempMacro[i];
     }
     delete[] boundaryTempMacro;
 
-
     delete[] Re;
-
 
     delete[] elementIndex;
     delete[] elementFaceSize;
@@ -87,16 +93,22 @@ Transient::~Transient() {
     delete[] boundaryTemp;
     delete[] boundaryConnect;
 
-    for (int i = 0; i < numBound; ++i) {
+
+#ifndef USE_GPU
+    for (int i = 0; i < numBound; ++i)
+    {
         delete[] boundaryCell[i];
         delete[] boundaryFace[i];
     }
+#endif
 
     delete[] boundaryCell;
     delete[] boundaryFace;
 
-    for (int i = 0; i < numBound; ++i) {
-        for (int j = 0; j < numBand; ++j) {
+    for (int i = 0; i < numBound; ++i)
+    {
+        for (int j = 0; j < numBand; ++j)
+        {
             delete[] boundaryTrans[i][j];
         }
         delete[] boundaryTrans[i];
@@ -106,7 +118,8 @@ Transient::~Transient() {
 
     delete[] boundaryFlux;
 
-    for (int i = 0; i < numFace; ++i) {
+    for (int i = 0; i < numFace; ++i)
+    {
         delete[] faceCell[i];
         delete[] faceFace[i];
     }
@@ -123,10 +136,11 @@ Transient::~Transient() {
     delete[] kappaBulk;
     delete[] capacityBulk;
 
-    for (int i = 0; i < numofMatter; ++i) {
+    for (int i = 0; i < numofMatter; ++i)
+    {
 
-
-        for (int j = 0; j < numBand; ++j) {
+        for (int j = 0; j < numBand; ++j)
+        {
             delete[] groupVelocityX[i][j];
             delete[] groupVelocityY[i][j];
             delete[] groupVelocityZ[i][j];
@@ -165,13 +179,13 @@ Transient::~Transient() {
 #else
 
 #endif
-
 }
 
 Transient::Transient(BTEMesh *mesh, BTEBoundaryCondition *bcs, BTEBand *bands, BTEAngle *angles, int num_proc,
                      int world_rank, double deltaT, double totalT,
                      int use_TDTR, double pulse_time, double repetition_frequency, double modulation_frequency,
-                     double xy_r) {
+                     double xy_r)
+{
     this->deltaT = deltaT;
     this->totalT = totalT;
     this->numProc = num_proc;
@@ -182,10 +196,10 @@ Transient::Transient(BTEMesh *mesh, BTEBoundaryCondition *bcs, BTEBand *bands, B
     this->repetition_frequency = repetition_frequency;
     this->modulation_frequency = modulation_frequency;
     this->xy_r = xy_r;
-    //this->mesh=mesh;
-    //this->angles=angles;
-    //this->bcs=bcs;
-    //this->bands=bands;
+    // this->mesh=mesh;
+    // this->angles=angles;
+    // this->bcs=bcs;
+    // this->bands=bands;
 
     L_x = mesh->L_x;
     L_y = mesh->L_y;
@@ -200,57 +214,90 @@ Transient::Transient(BTEMesh *mesh, BTEBoundaryCondition *bcs, BTEBand *bands, B
     numFace = mesh->Element_Faces.size();
     numofMatter = bands->kappabulk.size();
 
-    if (numDirection > num_proc) {
+    if (numDirection > num_proc)
+    {
         numDirectionLocal = numDirection / num_proc;
-        if (world_rank < numDirection % num_proc) {
+        if (world_rank < numDirection % num_proc)
+        {
             numDirectionLocal = numDirectionLocal + 1;
         }
         numBandLocal = numBand;
-    } else {
+    }
+    else
+    {
         numDirectionLocal = 1;
         numBandLocal = numBand / (num_proc / numDirection);
     }
     numCellLocal =
-            numCell / num_proc;
-    if (world_rank < numCell % num_proc) {
+        numCell / num_proc;
+    if (world_rank < numCell % num_proc)
+    {
         numCellLocal = numCellLocal + 1;
         startCell = numCellLocal * world_rank;
-    } else {
+    }
+    else
+    {
         startCell = (numCell / num_proc + 1) * (numCell % num_proc) +
                     (numCell / num_proc) * (world_rank - numCell % num_proc);
-
-
     }
+
+#ifndef USE_GPU
     numCellLocalList = new int[num_proc];
-    for (int i = 0; i < num_proc; ++i) {
-        if (i < numCell % num_proc) {
+    for (int i = 0; i < num_proc; ++i)
+    {
+        if (i < numCell % num_proc)
+        {
             numCellLocalList[i] = numCell / num_proc + 1;
             if (world_rank == 0)
                 cout << numCellLocalList[i] << endl;
-        } else {
+        }
+        else
+        {
             numCellLocalList[i] = numCell / num_proc;
             if (world_rank == 0)
                 cout << numCellLocalList[i] << endl;
         }
     }
+#else
+    cudaMalloc(&numCellLocalList, num_proc * sizeof(int));
+    {
+        int count = numCell % num_proc;
+        int val = numCell / num_proc;
+        cudaMemset(numCellLocalList, val + 1, count);
+        cudaMemset(numCellLocalList + count, val, num_proc - count);
+    }
+#endif
+
+#ifndef USE_GPU
     startCellList = new int[num_proc];
-    for (int i = 0; i < num_proc; ++i) {
-        if (i < numCell % num_proc) {
+    for (int i = 0; i < num_proc; ++i)
+    {
+        if (i < numCell % num_proc)
+        {
             startCellList[i] = (numCell / num_proc + 1) * i;
             if (world_rank == 0)
                 cout << startCellList[i] << endl;
-        } else {
+        }
+        else
+        {
             startCellList[i] =
-                    (numCell / num_proc + 1) * (numCell % num_proc) + (numCell / num_proc) * (i - numCell % num_proc);
+                (numCell / num_proc + 1) * (numCell % num_proc) + (numCell / num_proc) * (i - numCell % num_proc);
             if (world_rank == 0)
                 cout << startCellList[i] << endl;
         }
     }
+#else
+    // TODO: fixme
+    cudaMalloc(&startCellList, num_proc * sizeof(int));
+#endif
 
+#ifndef USE_GPU
     energyDensity = new double **[numBandLocal];
-    for (int i = 0; i < numBandLocal; ++i) {
+    for (int i = 0; i < numBandLocal; ++i)
+    {
         energyDensity[i] = new double *[numDirectionLocal];
-        for (int j = 0; j < numDirectionLocal; ++j) {
+        for (int j = 0; j < numDirectionLocal; ++j)
+        {
             energyDensity[i][j] = new double[numCell];
         }
     }
@@ -262,7 +309,19 @@ Transient::Transient(BTEMesh *mesh, BTEBoundaryCondition *bcs, BTEBand *bands, B
     temperatureOld = new double[numCell];
     temperatureVertex = new double[numNode * numofMatter];
     temperature1 = new double[numCell];
+#else
+    cudaMalloc(&energyDensity, numBandLocal * numDirectionLocal * sizeof(double));
+    cudaMalloc(&energyDensityVertex, numNode * numofMatter * sizeof(double));
+    cudaMalloc(&ebound, numBand * numDirection * numBand * 2 * sizeof(double));
+    cudaMalloc(&eboundLocal, numBandLocal * mesh->Boundaries.size() * 2 * sizeof(double));
+    cudaMalloc(&temperature, numCell * sizeof(double));
+    cudaMalloc(&temperatureLocal, numCell * sizeof(double));
+    cudaMalloc(&temperatureOld, numCell * sizeof(double));
+    cudaMalloc(&temperatureVertex, numNode * numofMatter * sizeof(double));
+    cudaMalloc(&temperature1, numCell * sizeof(double));
+#endif
 
+#ifndef USE_GPU
     totalEnergyLocal = new double[numCell];
     totalEnergy = new double[numCell];
     heatFluxXOld = new double[numCell];
@@ -274,44 +333,117 @@ Transient::Transient(BTEMesh *mesh, BTEBoundaryCondition *bcs, BTEBand *bands, B
     heatFluxZOld = new double[numCell];
     heatFluxZLocal = new double[numCell];
     heatFluxZGlobal = new double[numCell];
+#else
+    cudaMalloc(&totalEnergyLocal, numCell * sizeof(double));
+    cudaMalloc(&totalEnergy, numCell * sizeof(double));
+    cudaMalloc(&heatFluxXOld, numCell * sizeof(double));
+    cudaMalloc(&heatFluxXLocal, numCell * sizeof(double));
+    cudaMalloc(&heatFluxXGlobal, numCell * sizeof(double));
+    cudaMalloc(&heatFluxYOld, numCell * sizeof(double));
+    cudaMalloc(&heatFluxYLocal, numCell * sizeof(double));
+    cudaMalloc(&heatFluxYGlobal, numCell * sizeof(double));
+    cudaMalloc(&heatFluxZOld, numCell * sizeof(double));
+    cudaMalloc(&heatFluxZLocal, numCell * sizeof(double));
+    cudaMalloc(&heatFluxZGlobal, numCell * sizeof(double));
+#endif
 
+#ifndef USE_GPU
     gradientX = new double[numCell];
     gradientY = new double[numCell];
     gradientZ = new double[numCell];
     limit = new double[numCell];
+#else
+    cudaMalloc(&gradientX, numCell * sizeof(double));
+    cudaMalloc(&gradientY, numCell * sizeof(double));
+    cudaMalloc(&gradientZ, numCell * sizeof(double));
+    cudaMalloc(&limit, numCell * sizeof(double));
+#endif
 
+#ifndef USE_GPU
     gradientFaceX = new double[numFace * 2];
     gradientFaceY = new double[numFace * 2];
     gradientFaceZ = new double[numFace * 2];
+#else
+    cudaMalloc(&gradientFaceX, numFace * 2 * sizeof(double));
+    cudaMalloc(&gradientFaceY, numFace * 2 * sizeof(double));
+    cudaMalloc(&gradientFaceZ, numFace * 2 * sizeof(double));
+#endif
 
-
+#ifndef USE_GPU
     boundaryTempMacro = new double *[numBound];
-    for (int i = 0; i < numBound; ++i) {
+    for (int i = 0; i < numBound; ++i)
+    {
         boundaryTempMacro[i] = new double[2];
     }
+#else
+    cudaMalloc(&boundaryTempMacro, numBound * 2 * sizeof(double));
+#endif
 
+#ifndef USE_GPU
     Re = new double[numCell];
+#else
+    cudaMalloc(&Re, numCell * sizeof(double));
+#endif
 
-
+#ifndef USE_GPU
     elementIndex = new int[numCell];
-    for (int i = 0; i < numCell; ++i) {
+    for (int i = 0; i < numCell; ++i)
+    {
         elementIndex[i] = mesh->Elements[i].index;
     }
+#else
+    int *_elementIndex = new int[numCell];
+    for (int i = 0; i < numCell; ++i)
+    {
+        _elementIndex[i] = mesh->Elements[i].index;
+    }
+    cudaMalloc(&elementIndex, numCell * sizeof(int));
+    cudaMemcpy(elementIndex, _elementIndex, numCell * sizeof(int), cudaMemcpyHostToDevice);
+    delete[] _elementIndex;
+#endif
 
     elementFaceSize = new int[numCell];
-    for (int i = 0; i < numCell; ++i) {
+    for (int i = 0; i < numCell; ++i)
+    {
         elementFaceSize[i] = mesh->Elements[i].faces.size();
     }
+#ifdef USE_GPU
+    {
+        int *_elementFaceSize = elementFaceSize;
+        cudaMalloc(&elementFaceSize, numCell * sizeof(int));
+        cudaMemcpy(elementFaceSize, _elementFaceSize, numCell * sizeof(int), cudaMemcpyHostToDevice);
+        delete[] _elementFaceSize;
+    }
+#endif
+
     elementFaceNeighobr = new int[numCell * 6];
     elementFaceArea = new double[numCell * 6];
     elementFaceIndex = new int[numCell * 6];
-    for (int i = 0; i < numCell; ++i) {
-        for (int j = 0; j < elementFaceSize[i]; ++j) {
+    for (int i = 0; i < numCell; ++i)
+    {
+        for (int j = 0; j < elementFaceSize[i]; ++j)
+        {
             elementFaceArea[j + i * 6] = mesh->Elements[i].faces[j].area;
             elementFaceNeighobr[j + i * 6] = mesh->Elements[i].faces[j].neighbor;
             elementFaceIndex[j + i * 6] = mesh->Elements[i].faces[j].index;
         }
     }
+#ifdef USE_GPU
+    {
+        int *_elemenmtFaceNeighobr = elementFaceNeighobr;
+        double *_elementFaceArea = elementFaceArea;
+        int *_elementFaceIndex = elementFaceIndex;
+        cudaMalloc(&elementFaceNeighobr, numCell * 6 * sizeof(int));
+        cudaMalloc(&elementFaceArea, numCell * 6 * sizeof(double));
+        cudaMalloc(&elementFaceIndex, numCell * 6 * sizeof(int));
+        cudaMemcpy(elementFaceNeighobr, _elemenmtFaceNeighobr, numCell * 6 * sizeof(int), cudaMemcpyHostToDevice);
+        cudaMemcpy(elementFaceArea, _elementFaceArea, numCell * 6 * sizeof(double), cudaMemcpyHostToDevice);
+        cudaMemcpy(elementFaceIndex, _elementFaceIndex, numCell * 6 * sizeof(int), cudaMemcpyHostToDevice);
+        delete[] _elemenmtFaceNeighobr;
+        delete[] _elementFaceArea;
+        delete[] _elementFaceIndex;
+    }
+#endif
 
     elementFaceNormX = new double[numCell * 6];
     elementFaceNormY = new double[numCell * 6];
@@ -321,7 +453,8 @@ Transient::Transient(BTEMesh *mesh, BTEBoundaryCondition *bcs, BTEBand *bands, B
     elementFaceCenterY = new double[numCell * 6];
     elementFaceCenterZ = new double[numCell * 6];
     elementFaceBound = new int[numCell * 6];
-    for (int i = 0; i < numCell * 6; ++i) {
+    for (int i = 0; i < numCell * 6; ++i)
+    {
         elementFaceNormX[i] = 0;
         elementFaceCenterX[i] = 0;
         elementFaceNormY[i] = 0;
@@ -329,8 +462,10 @@ Transient::Transient(BTEMesh *mesh, BTEBoundaryCondition *bcs, BTEBand *bands, B
         elementFaceNormZ[i] = 0;
         elementFaceCenterZ[i] = 0;
     }
-    for (int i = 0; i < numCell; ++i) {
-        for (int j = 0; j < elementFaceSize[i]; ++j) {
+    for (int i = 0; i < numCell; ++i)
+    {
+        for (int j = 0; j < elementFaceSize[i]; ++j)
+        {
             elementFaceNormX[j + i * 6] = mesh->Elements[i].faces[j].norm.x;
             elementFaceNormY[j + i * 6] = mesh->Elements[i].faces[j].norm.y;
             elementFaceNormZ[j + i * 6] = mesh->Elements[i].faces[j].norm.z;
@@ -340,142 +475,317 @@ Transient::Transient(BTEMesh *mesh, BTEBoundaryCondition *bcs, BTEBand *bands, B
             elementFaceBound[j + i * 6] = mesh->Elements[i].faces[j].bound;
         }
     }
-
+#ifdef USE_GPU
+    {
+        double *_elementFaceNormX = elementFaceNormX;
+        double *_elementFaceNormY = elementFaceNormY;
+        double *_elementFaceNormZ = elementFaceNormZ;
+        double *_elementFaceCenterX = elementFaceCenterX;
+        double *_elementFaceCenterY = elementFaceCenterY;
+        double *_elementFaceCenterZ = elementFaceCenterZ;
+        int *_elementFaceBound = elementFaceBound;
+        cudaMalloc(&elementFaceNormX, numCell * 6 * sizeof(double));
+        cudaMalloc(&elementFaceNormY, numCell * 6 * sizeof(double));
+        cudaMalloc(&elementFaceNormZ, numCell * 6 * sizeof(double));
+        cudaMalloc(&elementFaceCenterX, numCell * 6 * sizeof(double));
+        cudaMalloc(&elementFaceCenterY, numCell * 6 * sizeof(double));
+        cudaMalloc(&elementFaceCenterZ, numCell * 6 * sizeof(double));
+        cudaMalloc(&elementFaceBound, numCell * 6 * sizeof(int));
+        cudaMemcpy(elementFaceNormX, _elementFaceNormX, numCell * 6 * sizeof(double), cudaMemcpyHostToDevice);
+        cudaMemcpy(elementFaceNormY, _elementFaceNormY, numCell * 6 * sizeof(double), cudaMemcpyHostToDevice);
+        cudaMemcpy(elementFaceNormZ, _elementFaceNormZ, numCell * 6 * sizeof(double), cudaMemcpyHostToDevice);
+        cudaMemcpy(elementFaceCenterX, _elementFaceCenterX, numCell * 6 * sizeof(double), cudaMemcpyHostToDevice);
+        cudaMemcpy(elementFaceCenterY, _elementFaceCenterY, numCell * 6 * sizeof(double), cudaMemcpyHostToDevice);
+        cudaMemcpy(elementFaceCenterZ, _elementFaceCenterZ, numCell * 6 * sizeof(double), cudaMemcpyHostToDevice);
+        cudaMemcpy(elementFaceBound, _elementFaceBound, numCell * 6 * sizeof(int), cudaMemcpyHostToDevice);
+        delete[] _elementFaceNormX;
+        delete[] _elementFaceNormY;
+        delete[] _elementFaceNormZ;
+        delete[] _elementFaceCenterX;
+        delete[] _elementFaceCenterY;
+        delete[] _elementFaceCenterZ;
+        delete[] _elementFaceBound;
+    }
+#endif
 
     elementFaceVertexesSize = new int[numCell * 6];
-    for (int i = 0; i < numCell; ++i) {
-        for (int j = 0; j < elementFaceSize[i]; ++j) {
+    for (int i = 0; i < numCell; ++i)
+    {
+        for (int j = 0; j < elementFaceSize[i]; ++j)
+        {
             elementFaceVertexesSize[j + i * 6] = mesh->Elements[i].faces[j].vertexes.size();
         }
     }
+#ifdef USE_GPU
+    {
+        int *_elementFaceVertexesSize = elementFaceVertexesSize;
+        cudaMalloc(&elementFaceVertexesSize, numCell * 6 * sizeof(int));
+        cudaMemcpy(elementFaceVertexesSize, _elementFaceVertexesSize, numCell * 6 * sizeof(int), cudaMemcpyHostToDevice);
+        delete[] _elementFaceVertexesSize;
+    }
+#endif
 
     elementFaceVertexes = new int[numCell * 6 * 4];
-    for (int i = 0; i < numCell; ++i) {
-        for (int j = 0; j < elementFaceSize[i]; ++j) {
-            for (int k = 0; k < elementFaceVertexesSize[j + i * 6]; ++k) {
+    for (int i = 0; i < numCell; ++i)
+    {
+        for (int j = 0; j < elementFaceSize[i]; ++j)
+        {
+            for (int k = 0; k < elementFaceVertexesSize[j + i * 6]; ++k)
+            {
                 elementFaceVertexes[k + j * 4 + i * 6 * 4] = mesh->Elements[i].faces[j].vertexes[k];
             }
         }
     }
+#ifdef USE_GPU
+    {
+        int *_elementFaceVertexes = elementFaceVertexes;
+        cudaMalloc(&elementFaceVertexes, numCell * 6 * 4 * sizeof(int));
+        cudaMemcpy(elementFaceVertexes, _elementFaceVertexes, numCell * 6 * 4 * sizeof(int), cudaMemcpyHostToDevice);
+        delete[] _elementFaceVertexes;
+    }
+#endif
 
     elementVertexesSize = new int[numCell];
-    for (int i = 0; i < numCell; ++i) {
+    for (int i = 0; i < numCell; ++i)
+    {
         elementVertexesSize[i] = mesh->Elements[i].vertexes.size();
     }
+#ifdef USE_GPU
+    {
+        int *_elementVertexesSize = elementVertexesSize;
+        cudaMalloc(&elementVertexesSize, numCell * sizeof(int));
+        cudaMemcpy(elementVertexesSize, _elementVertexesSize, numCell * sizeof(int), cudaMemcpyHostToDevice);
+        delete[] _elementVertexesSize;
+    }
+#endif
+
     elementVertexes = new int[numCell * 8];
-    for (int i = 0; i < numCell; ++i) {
-        for (int j = 0; j < elementVertexesSize[i]; ++j) {
+    for (int i = 0; i < numCell; ++i)
+    {
+        for (int j = 0; j < elementVertexesSize[i]; ++j)
+        {
             elementVertexes[j + i * 8] = mesh->Elements[i].vertexes[j];
-            //std::cout<<elementVertexes[j + i * 8]<<std::endl;
+            // std::cout<<elementVertexes[j + i * 8]<<std::endl;
         }
     }
+#ifdef USE_GPU
+    {
+        int *_elementVertexes = elementVertexes;
+        cudaMalloc(&elementVertexes, numCell * 8 * sizeof(int));
+        cudaMemcpy(elementVertexes, _elementVertexes, numCell * 8 * sizeof(int), cudaMemcpyHostToDevice);
+        delete[] _elementVertexes;
+    }
+#endif
 
     elementVolume = new double[numCell];
-    for (int i = 0; i < numCell; ++i) {
+    for (int i = 0; i < numCell; ++i)
+    {
         elementVolume[i] = mesh->Elements[i].volume;
     }
+#ifdef USE_GPU
+    {
+        double *_elementVolume = elementVolume;
+        cudaMalloc(&elementVolume, numCell * sizeof(double));
+        cudaMemcpy(elementVolume, _elementVolume, numCell * sizeof(double), cudaMemcpyHostToDevice);
+        delete[] _elementVolume;
+    }
+#endif
+
     elementHeatSource = new double[numCell];
-    for (int i = 0; i < numCell; ++i) {
+    for (int i = 0; i < numCell; ++i)
+    {
         elementHeatSource[i] = mesh->Elements[i].heat_source;
     }
-
+#ifdef USE_GPU
+    {
+        double *_elementHeatSource = elementHeatSource;
+        cudaMalloc(&elementHeatSource, numCell * sizeof(double));
+        cudaMemcpy(elementHeatSource, _elementHeatSource, numCell * sizeof(double), cudaMemcpyHostToDevice);
+        delete[] _elementHeatSource;
+    }
+#endif
 
     elementCenterX = new double[numCell];
     elementCenterY = new double[numCell];
     elementCenterZ = new double[numCell];
-    for (int i = 0; i < numCell; ++i) {
+    for (int i = 0; i < numCell; ++i)
+    {
         elementCenterX[i] = mesh->Elements[i].center.x;
         elementCenterY[i] = mesh->Elements[i].center.y;
         elementCenterZ[i] = mesh->Elements[i].center.z;
     }
+#ifdef USE_GPU
+    {
+        double *_elementCenterX = elementCenterX;
+        double *_elementCenterY = elementCenterY;
+        double *_elementCenterZ = elementCenterZ;
+        cudaMalloc(&elementCenterX, numCell * sizeof(double));
+        cudaMalloc(&elementCenterY, numCell * sizeof(double));
+        cudaMalloc(&elementCenterZ, numCell * sizeof(double));
+        cudaMemcpy(elementCenterX, _elementCenterX, numCell * sizeof(double), cudaMemcpyHostToDevice);
+        cudaMemcpy(elementCenterY, _elementCenterY, numCell * sizeof(double), cudaMemcpyHostToDevice);
+        cudaMemcpy(elementCenterZ, _elementCenterZ, numCell * sizeof(double), cudaMemcpyHostToDevice);
+        delete[] _elementCenterX;
+        delete[] _elementCenterY;
+        delete[] _elementCenterZ;
+    }
+#endif
 
     elementNeighborList.resize(numCell);
-    for (int i = 0; i < numCell; ++i) {
-        for (int j = 0; j < elementVertexesSize[i]; ++j) {
+    for (int i = 0; i < numCell; ++i)
+    {
+        for (int j = 0; j < elementVertexesSize[i]; ++j)
+        {
             int vertex = mesh->Elements[i].vertexes[j];
-            for (int k = 0; k < mesh->Nodes[vertex].cells.size(); ++k) {
+            for (int k = 0; k < mesh->Nodes[vertex].cells.size(); ++k)
+            {
                 int cell = mesh->Nodes[vertex].cells[k];
                 if (!ishave(cell, elementNeighborList[i]) && mesh->Elements[cell].matter == mesh->Elements[i].matter &&
-                    cell != i) {
+                    cell != i)
+                {
                     elementNeighborList[i].push_back(cell);
                 }
             }
         }
     }
+#ifdef USE_GPU
+    // TODO: FIXME
+#endif
 
     boundaryType = new int[numBound];
     boundaryThermal = new double[numBound];
     boundaryTemp = new double[numBound];
     boundaryConnect = new int[numBound];
 
-    for (int i = 0; i < numBound; ++i) {
+    for (int i = 0; i < numBound; ++i)
+    {
         boundaryType[i] = mesh->Boundaries[i].type;
         boundaryThermal[i] = mesh->Boundaries[i].Temperature;
-
         boundaryConnect[i] = mesh->Boundaries[i].connection;
     }
+#ifdef USE_GPU
+    {
+        int *_boundaryType = boundaryType;
+        double *_boundaryThermal = boundaryThermal;
+        double *_boundaryTemp = boundaryTemp;
+        int *_boundaryConnect = boundaryConnect;
+        cudaMalloc(&boundaryType, numBound * sizeof(int));
+        cudaMalloc(&boundaryThermal, numBound * sizeof(double));
+        cudaMalloc(&boundaryTemp, numBound * sizeof(double));
+        cudaMalloc(&boundaryConnect, numBound * sizeof(int));
+        cudaMemcpy(boundaryType, _boundaryType, numBound * sizeof(int), cudaMemcpyHostToDevice);
+        cudaMemcpy(boundaryThermal, _boundaryThermal, numBound * sizeof(double), cudaMemcpyHostToDevice);
+        cudaMemcpy(boundaryTemp, _boundaryTemp, numBound * sizeof(double), cudaMemcpyHostToDevice);
+        cudaMemcpy(boundaryConnect, _boundaryConnect, numBound * sizeof(int), cudaMemcpyHostToDevice);
+        delete[] _boundaryType;
+        delete[] _boundaryThermal;
+        delete[] _boundaryTemp;
+        delete[] _boundaryConnect;
+    }
+#endif
 
+#ifndef USE_GPU
     boundaryCell = new int *[numBound];
     boundaryFace = new int *[numBound];
-    for (int i = 0; i < numBound; ++i) {
+#else
+    // require C++11
+    boundaryCell = new int[numBound][2];
+    boundaryFace = new int[numBound][2];
+#endif
+    for (int i = 0; i < numBound; ++i)
+    {
+#ifndef USE_GPU
         boundaryCell[i] = new int[2];
         boundaryFace[i] = new int[2];
-        for (int j = 0; j < 2; ++j) {
+#endif
+        for (int j = 0; j < 2; ++j)
+        {
             boundaryCell[i][j] = -1;
             boundaryFace[i][j] = -1;
         }
-        for (int j = 0; j < mesh->Boundaries[i].cellindex.size(); ++j) {
+        for (int j = 0; j < mesh->Boundaries[i].cellindex.size(); ++j)
+        {
             boundaryCell[i][j] = mesh->Boundaries[i].cellindex[j];
             boundaryFace[i][j] = mesh->Boundaries[i].faceindex[j];
         }
-
     }
+#ifdef USE_GPU
+    {
+        int *_boundaryCell = (int*)boundaryCell;
+        int *_boundaryFace = (int*)boundaryFace;
+        cudaMalloc(&boundaryCell, numBound * 2 * sizeof(int));
+        cudaMalloc(&boundaryFace, numBound * 2 * sizeof(int));
+        cudaMemcpy(boundaryCell, _boundaryCell, numBound * 2 * sizeof(int), cudaMemcpyHostToDevice);
+        cudaMemcpy(boundaryFace, _boundaryFace, numBound * 2 * sizeof(int), cudaMemcpyHostToDevice);
+        delete[] _boundaryCell;
+        delete[] _boundaryFace;
+    }
+#endif
 
     boundaryNeighbors.resize(numBound);
-    for (int i = 0; i < numBound; ++i) {
+    for (int i = 0; i < numBound; ++i)
+    {
         boundaryNeighbors[i] = mesh->Boundaries[i].neighbors;
     }
+#ifdef USE_GPU
+    // Seems boundaryNeighbors is not used in calculation, ignore it
+#endif
 
+#ifndef USE_GPU
     boundaryTrans = new double **[numBound];
-    for (int i = 0; i < numBound; ++i) {
+    for (int i = 0; i < numBound; ++i)
+    {
         boundaryTrans[i] = new double *[numBand];
-        for (int j = 0; j < numBand; ++j) {
+        for (int j = 0; j < numBand; ++j)
+        {
             boundaryTrans[i][j] = new double[2];
         }
     }
-    for (int i = 0; i < numBound; ++i) {
-        for (int j = 0; j < numBand; ++j) {
-            if (boundaryType[i] == 4 || boundaryType[i] == 5) {
-                for (int k = 0; k < 2; ++k) {
+
+    for (int i = 0; i < numBound; ++i)
+    {
+        for (int j = 0; j < numBand; ++j)
+        {
+            if (boundaryType[i] == 4 || boundaryType[i] == 5)
+            {
+                for (int k = 0; k < 2; ++k)
+                {
                     boundaryTrans[i][j][k] = mesh->Boundaries[i].trans[k][j];
                 }
-
-            } else {
-                for (int k = 0; k < 2; ++k) {
+            }
+            else
+            {
+                for (int k = 0; k < 2; ++k)
+                {
                     boundaryTrans[i][j][k] = 0;
                 }
             }
-
         }
     }
+#else
+#endif
 
     boundaryFlux = new double[numBound];
 
     faceBound = new int[numFace];
-    for (int i = 0; i < numFace; ++i) {
+    for (int i = 0; i < numFace; ++i)
+    {
         faceBound[i] = mesh->Element_Faces[i].Boundindex;
     }
     faceCell = new int *[numFace];
     faceFace = new int *[numFace];
 
-    for (int i = 0; i < numFace; ++i) {
+    for (int i = 0; i < numFace; ++i)
+    {
         faceCell[i] = new int[2];
         faceFace[i] = new int[2];
-        for (int j = 0; j < 2; ++j) {
+        for (int j = 0; j < 2; ++j)
+        {
             faceCell[i][j] = -1;
             faceFace[i][j] = -1;
         }
-        for (int j = 0; j < mesh->Element_Faces[i].cellindex.size(); ++j) {
+        for (int j = 0; j < mesh->Element_Faces[i].cellindex.size(); ++j)
+        {
             faceCell[i][j] = mesh->Element_Faces[i].cellindex[j];
             faceFace[i][j] = mesh->Element_Faces[i].faceindex[j];
         }
@@ -484,23 +794,25 @@ Transient::Transient(BTEMesh *mesh, BTEBoundaryCondition *bcs, BTEBand *bands, B
     nodeX = new double[numNode];
     nodeY = new double[numNode];
     nodeZ = new double[numNode];
-    for (int i = 0; i < numNode; ++i) {
+    for (int i = 0; i < numNode; ++i)
+    {
         nodeX[i] = mesh->Nodes[i].x;
         nodeY[i] = mesh->Nodes[i].y;
         nodeZ[i] = mesh->Nodes[i].z;
     }
 
-
     matter = new int[numCell];
-    for (int i = 0; i < numCell; ++i) {
+    for (int i = 0; i < numCell; ++i)
+    {
         matter[i] = mesh->Elements[i].matter;
     }
     kappaBulk = new double[numofMatter];
     capacityBulk = new double[numofMatter];
-    for (int i = 0; i < numofMatter; ++i) {
+    for (int i = 0; i < numofMatter; ++i)
+    {
         kappaBulk[i] = bands->kappabulk[i];
         capacityBulk[i] = bands->kappabulk[i];
-        //cout<<kappaBulk[i]<<endl;
+        // cout<<kappaBulk[i]<<endl;
     }
 
     groupVelocityX = new double **[numofMatter];
@@ -511,7 +823,8 @@ Transient::Transient(BTEMesh *mesh, BTEBoundaryCondition *bcs, BTEBand *bands, B
     latticeRatio = new double **[numofMatter];
     heatRatio = new double **[numofMatter];
     modeWeight = new double **[numofMatter];
-    for (int i = 0; i < numofMatter; ++i) {
+    for (int i = 0; i < numofMatter; ++i)
+    {
         groupVelocityX[i] = new double *[numBand];
         groupVelocityY[i] = new double *[numBand];
         groupVelocityZ[i] = new double *[numBand];
@@ -521,7 +834,8 @@ Transient::Transient(BTEMesh *mesh, BTEBoundaryCondition *bcs, BTEBand *bands, B
         heatRatio[i] = new double *[numBand];
         modeWeight[i] = new double *[numBand];
 
-        for (int j = 0; j < numBand; ++j) {
+        for (int j = 0; j < numBand; ++j)
+        {
             groupVelocityX[i][j] = new double[numDirection];
             groupVelocityY[i][j] = new double[numDirection];
             groupVelocityZ[i][j] = new double[numDirection];
@@ -533,10 +847,12 @@ Transient::Transient(BTEMesh *mesh, BTEBoundaryCondition *bcs, BTEBand *bands, B
         }
     }
 
-
-    for (int imatter = 0; imatter < numofMatter; ++imatter) {
-        for (int i = 0; i < numBand; ++i) {
-            for (int j = 0; j < numDirection; ++j) {
+    for (int imatter = 0; imatter < numofMatter; ++imatter)
+    {
+        for (int i = 0; i < numBand; ++i)
+        {
+            for (int j = 0; j < numDirection; ++j)
+            {
                 groupVelocityX[imatter][i][j] = bands->bands[i].group_velocity[imatter] * angles->direction[j].x;
                 groupVelocityY[imatter][i][j] = bands->bands[i].group_velocity[imatter] * angles->direction[j].y;
                 groupVelocityZ[imatter][i][j] = bands->bands[i].group_velocity[imatter] * angles->direction[j].z;
@@ -549,46 +865,66 @@ Transient::Transient(BTEMesh *mesh, BTEBoundaryCondition *bcs, BTEBand *bands, B
         }
     }
 
-
     directionX = new double[numDirection];
     directionY = new double[numDirection];
     directionZ = new double[numDirection];
-    for (int j = 0; j < numDirection; ++j) {
+    for (int j = 0; j < numDirection; ++j)
+    {
         directionX[j] = angles->direction[j].x;
         directionY[j] = angles->direction[j].y;
         directionZ[j] = angles->direction[j].z;
     }
-
-
+#ifdef USE_GPU
+    {
+        double *_directionX = directionX;
+        double *_directionY = directionY;
+        double *_directionZ = directionZ;
+        cudaMalloc(&directionX, sizeof(double) * numDirection);
+        cudaMalloc(&directionY, sizeof(double) * numDirection);
+        cudaMalloc(&directionZ, sizeof(double) * numDirection);
+        cudaMemcpy(directionX, _directionX, sizeof(double) * numDirection, cudaMemcpyHostToDevice);
+        cudaMemcpy(directionY, _directionY, sizeof(double) * numDirection, cudaMemcpyHostToDevice);
+        cudaMemcpy(directionZ, _directionZ, sizeof(double) * numDirection, cudaMemcpyHostToDevice);
+        delete[] _directionX;
+        delete[] _directionY;
+        delete[] _directionZ;
+    }
+#endif
 }
 
-
-void Transient::_set_initial(int Use_Backup) const {
-    for (int iband_local = 0; iband_local < numBandLocal; iband_local++) {
+void Transient::_set_initial(int Use_Backup) const
+{
+    for (int iband_local = 0; iband_local < numBandLocal; iband_local++)
+    {
         int iband = iband_local * (ceil(double(numProc) / double(numDirection))) + worldRank / numDirection;
-        for (int inf_local = 0; inf_local < numDirectionLocal; inf_local++) {
-            int inf = ((inf_local) * numProc + worldRank) % numDirection;
-            for (int kk = 0; kk < numCell; kk++) {
+        for (int inf_local = 0; inf_local < numDirectionLocal; inf_local++)
+        {
+            int inf = ((inf_local)*numProc + worldRank) % numDirection;
+            for (int kk = 0; kk < numCell; kk++)
+            {
                 energyDensity[iband_local][inf_local][kk] = temperature[kk] * heatCapacity[matter[kk]][iband][inf];
             }
         }
-
     }
 }
 
-void Transient::_get_bound_ee(int iband_local, int inf_local) const {
-    int inf = ((inf_local) * numProc + worldRank) % numDirection;
+void Transient::_get_bound_ee(int iband_local, int inf_local) const
+{
+    int inf = ((inf_local)*numProc + worldRank) % numDirection;
     int iband = iband_local * (ceil(double(numProc) / double(numDirection))) + worldRank / numDirection;
-    for (int ib = 0; ib < numBound; ++ib) {
-        for (int icell = 0; icell < 2; ++icell) {
+    for (int ib = 0; ib < numBound; ++ib)
+    {
+        for (int icell = 0; icell < 2; ++icell)
+        {
             int ie = boundaryCell[ib][icell];
             int jface = boundaryFace[ib][icell];
-            if (ie >= 0) {
+            if (ie >= 0)
+            {
                 double dotproduct = (groupVelocityX[matter[ie]][iband][inf] * elementFaceNormX[jface + ie * 6] +
-                                     groupVelocityY[matter[ie]][iband][inf]
-                                     * elementFaceNormY[jface + ie * 6] +
+                                     groupVelocityY[matter[ie]][iband][inf] * elementFaceNormY[jface + ie * 6] +
                                      groupVelocityZ[matter[ie]][iband][inf] * elementFaceNormZ[jface + ie * 6]);
-                if (dotproduct >= 0) {
+                if (dotproduct >= 0)
+                {
                     double ax = elementFaceCenterX[jface + ie * 6] - elementCenterX[ie];
                     double ay = elementFaceCenterY[jface + ie * 6] - elementCenterY[ie];
                     double az = elementFaceCenterZ[jface + ie * 6] - elementCenterZ[ie];
@@ -599,51 +935,60 @@ void Transient::_get_bound_ee(int iband_local, int inf_local) const {
                 }
             }
         }
-
     }
     MPI_Allgather(eboundLocal + iband_local * numBound * 2,
                   numBound * 2,
                   MPI_DOUBLE,
                   (ebound + numBound * 2 * (inf - worldRank % numDirection)) +
-                  numDirection * numBound * 2 * (iband - worldRank / numDirection),
+                      numDirection * numBound * 2 * (iband - worldRank / numDirection),
                   numBound * 2,
                   MPI_DOUBLE,
                   MPI_COMM_WORLD);
 }
 
-void Transient::_set_bound_ee_1() const {
-    for (int inf_local = 0; inf_local < numDirectionLocal; inf_local++) {
-        int inf = ((inf_local) * numProc + worldRank) % numDirection;
-        for (int iband_local = 0; iband_local < numBandLocal; ++iband_local) {
+void Transient::_set_bound_ee_1() const
+{
+    for (int inf_local = 0; inf_local < numDirectionLocal; inf_local++)
+    {
+        int inf = ((inf_local)*numProc + worldRank) % numDirection;
+        for (int iband_local = 0; iband_local < numBandLocal; ++iband_local)
+        {
             int iband = iband_local * (ceil(double(numProc) / double(numDirection))) + worldRank / numDirection;
-            for (int ib = 0; ib < numBound; ++ib) {
-                for (int icell = 0; icell < 2; ++icell) {
+            for (int ib = 0; ib < numBound; ++ib)
+            {
+                for (int icell = 0; icell < 2; ++icell)
+                {
                     int ie = boundaryCell[ib][icell];
                     int jface = boundaryFace[ib][icell];
-                    if (ie >= 0) {
-                        if (heatRatio[matter[ie]][iband][inf] != 0) {
-                            double dotproduct = (
-                                    groupVelocityX[matter[ie]][iband][inf] * elementFaceNormX[jface + ie * 6] +
-                                    groupVelocityY[matter[ie]][iband][inf]
-                                    * elementFaceNormY[jface + ie * 6] +
-                                    groupVelocityZ[matter[ie]][iband][inf] * elementFaceNormZ[jface + ie * 6]);
-                            if (dotproduct < 0) {
-                                if (boundaryType[ib] == 1) {
+                    if (ie >= 0)
+                    {
+                        if (heatRatio[matter[ie]][iband][inf] != 0)
+                        {
+                            double dotproduct = (groupVelocityX[matter[ie]][iband][inf] * elementFaceNormX[jface + ie * 6] +
+                                                 groupVelocityY[matter[ie]][iband][inf] * elementFaceNormY[jface + ie * 6] +
+                                                 groupVelocityZ[matter[ie]][iband][inf] * elementFaceNormZ[jface + ie * 6]);
+                            if (dotproduct < 0)
+                            {
+                                if (boundaryType[ib] == 1)
+                                {
                                     double e = heatCapacity[matter[ie]][iband][inf] * boundaryThermal[ib];
                                     // mesh->Boundaries[ie].ee_bound[jface]->set(inf,iband,e);
                                     eboundLocal[iband_local * numBound * 2 + ib * 2 + icell] = e;
-                                    //cout<<eboundLocal[iband_local * numBound * 2 + ib * 2 +icell]<<endl;
-                                } else if (boundaryType[ib] == 2) {
+                                    // cout<<eboundLocal[iband_local * numBound * 2 + ib * 2 +icell]<<endl;
+                                }
+                                else if (boundaryType[ib] == 2)
+                                {
                                     double einsum1 = 0;
                                     double temp1 = 0;
-                                    for (int nft = 0; nft < numDirection; ++nft) {
+                                    for (int nft = 0; nft < numDirection; ++nft)
+                                    {
                                         double dotproduct1 = (groupVelocityX[matter[ie]][iband][nft] *
-                                                              elementFaceNormX[jface + ie * 6] +
-                                                              groupVelocityY[matter[ie]][iband][nft]
-                                                              * elementFaceNormY[jface + ie * 6] +
+                                                                  elementFaceNormX[jface + ie * 6] +
+                                                              groupVelocityY[matter[ie]][iband][nft] * elementFaceNormY[jface + ie * 6] +
                                                               groupVelocityZ[matter[ie]][iband][nft] *
-                                                              elementFaceNormZ[jface + ie * 6]);
-                                        if (dotproduct1 >= 0) {
+                                                                  elementFaceNormZ[jface + ie * 6]);
+                                        if (dotproduct1 >= 0)
+                                        {
                                             einsum1 += ebound[iband * numDirection * numBound * 2 + nft * numBound * 2 +
                                                               ib * 2 + icell] *
                                                        (dotproduct1 * modeWeight[matter[ie]][iband][nft]);
@@ -652,41 +997,45 @@ void Transient::_set_bound_ee_1() const {
                                     }
                                     double e = einsum1 / temp1;
                                     eboundLocal[iband_local * numBound * 2 + ib * 2 + icell] = e;
-                                } else if (boundaryType[ib] == 3) {
+                                }
+                                else if (boundaryType[ib] == 3)
+                                {
                                     vec Reflectr;
                                     double dotproduct1 = (directionX[inf] * elementFaceNormX[jface + ie * 6] +
-                                                          directionY[inf]
-                                                          * elementFaceNormY[jface + ie * 6] +
+                                                          directionY[inf] * elementFaceNormY[jface + ie * 6] +
                                                           directionZ[inf] * elementFaceNormZ[jface + ie * 6]);
                                     double ReflectrX =
-                                            directionX[inf] - elementFaceNormX[jface + ie * 6] * dotproduct1 * 2;
+                                        directionX[inf] - elementFaceNormX[jface + ie * 6] * dotproduct1 * 2;
                                     double ReflectrY =
-                                            directionY[inf] - elementFaceNormY[jface + ie * 6] * dotproduct1 * 2;
+                                        directionY[inf] - elementFaceNormY[jface + ie * 6] * dotproduct1 * 2;
                                     double ReflectrZ =
-                                            directionZ[inf] - elementFaceNormZ[jface + ie * 6] * dotproduct1 * 2;
-                                    //Reflectr = angles->direction[inf] - mesh->Elements[ie].faces[jface].norm * (angles->direction[inf] * mesh->Elements[ie].faces[jface].norm) * 2;
+                                        directionZ[inf] - elementFaceNormZ[jface + ie * 6] * dotproduct1 * 2;
+                                    // Reflectr = angles->direction[inf] - mesh->Elements[ie].faces[jface].norm * (angles->direction[inf] * mesh->Elements[ie].faces[jface].norm) * 2;
                                     double close = 1;
                                     int nf = -1;
-                                    for (int k = 0; k < numDirection; ++k) {
+                                    for (int k = 0; k < numDirection; ++k)
+                                    {
                                         double length = sqrt(
-                                                pow(ReflectrX - directionX[k], 2) + pow(ReflectrY - directionY[k], 2) +
-                                                pow(ReflectrZ - directionZ[k], 2));
-                                        if (length < close) {
+                                            pow(ReflectrX - directionX[k], 2) + pow(ReflectrY - directionY[k], 2) +
+                                            pow(ReflectrZ - directionZ[k], 2));
+                                        if (length < close)
+                                        {
                                             nf = k;
                                             close = length;
                                         }
                                     }
-                                    eboundLocal[iband_local * numBound * 2 + ib * 2 + icell] = ebound[
-                                            iband * numDirection * numBound * 2 + nf * numBound * 2 + ib * 2 + icell];
-
-                                } else if (boundaryType[ib] == 5) {
+                                    eboundLocal[iband_local * numBound * 2 + ib * 2 + icell] = ebound[iband * numDirection * numBound * 2 + nf * numBound * 2 + ib * 2 + icell];
+                                }
+                                else if (boundaryType[ib] == 5)
+                                {
                                     double einsum1 = 0;
                                     double temp1 = 0;
                                     double einsum2 = 0;
                                     double temp2 = 0;
                                     int ie1 = boundaryCell[ib][1 - icell];
                                     int jface1 = boundaryFace[ib][1 - icell];
-                                    for (int nft = 0; nft < numDirection; ++nft) {
+                                    for (int nft = 0; nft < numDirection; ++nft)
+                                    {
                                         double groupvelocity1 = sqrt(pow(groupVelocityX[matter[ie]][iband][nft], 2) +
                                                                      pow(groupVelocityY[matter[ie]][iband][nft], 2) +
                                                                      pow(groupVelocityZ[matter[ie]][iband][nft], 2));
@@ -695,20 +1044,21 @@ void Transient::_set_bound_ee_1() const {
                                                                      pow(groupVelocityZ[matter[ie1]][iband][nft], 2));
 
                                         double dotproduct1 = (directionX[nft] * elementFaceNormX[jface + ie * 6] +
-                                                              directionY[nft]
-                                                              * elementFaceNormY[jface + ie * 6] +
+                                                              directionY[nft] * elementFaceNormY[jface + ie * 6] +
                                                               directionZ[nft] * elementFaceNormZ[jface + ie * 6]);
-                                        //double dotproduct1=(groupVelocityX[matter[ie]][iband][nft] * elementFaceNormX[jface + ie * 6] + groupVelocityY[matter[ie]][iband][nft]
+                                        // double dotproduct1=(groupVelocityX[matter[ie]][iband][nft] * elementFaceNormX[jface + ie * 6] + groupVelocityY[matter[ie]][iband][nft]
                                         //* elementFaceNormY[jface + ie * 6] + groupVelocityZ[matter[ie]][iband][nft] * elementFaceNormZ[jface + ie * 6]);
-                                        if (dotproduct1 >= 0) {
+                                        if (dotproduct1 >= 0)
+                                        {
                                             einsum1 += groupvelocity1 *
                                                        ebound[iband * numDirection * numBound * 2 + nft * numBound * 2 +
                                                               ib * 2 + icell] *
                                                        (dotproduct1 * modeWeight[matter[ie]][iband][nft]);
-                                            //cout<<einsum1<<endl;
+                                            // cout<<einsum1<<endl;
                                             temp1 += (dotproduct1 * modeWeight[matter[ie]][iband][nft]);
-
-                                        } else {
+                                        }
+                                        else
+                                        {
                                             einsum2 += groupvelocity2 *
                                                        ebound[iband * numDirection * numBound * 2 + nft * numBound * 2 +
                                                               ib * 2 + 1 - icell] *
@@ -722,44 +1072,47 @@ void Transient::_set_bound_ee_1() const {
 
                                     double e = einsum1 / temp1 * (1 - boundaryTrans[ib][iband][icell]) +
                                                einsum2 / temp2 * (1 - boundaryTrans[ib][iband][icell]);
-                                    //mesh->Boundaries[i].macro_Temp[j].Temp+=bands->bands[iband].lattice_ratio[mesh->Elements[ie].matter] * e / bands->bands[iband].heat_capacity[mesh->Elements[ie].matter] * angles->weight[inf] ;
-                                    //mesh->Boundaries[i].ee_bound[j]->set(inf,iband,e);
-                                    //cout<<e<<endl;
+                                    // mesh->Boundaries[i].macro_Temp[j].Temp+=bands->bands[iband].lattice_ratio[mesh->Elements[ie].matter] * e / bands->bands[iband].heat_capacity[mesh->Elements[ie].matter] * angles->weight[inf] ;
+                                    // mesh->Boundaries[i].ee_bound[j]->set(inf,iband,e);
+                                    // cout<<e<<endl;
                                     eboundLocal[iband_local * numBound * 2 + ib * 2 + icell] = e / groupvelocity1;
-                                } else if (boundaryType[ib] < 0) {
+                                }
+                                else if (boundaryType[ib] < 0)
+                                {
                                     double e = ebound[iband * numDirection * numBound * 2 + inf * numBound * 2 +
                                                       boundaryConnect[ib] * 2 + icell];
                                     e = e + heatCapacity[matter[ie]][iband][inf] *
-                                            (boundaryThermal[ib] - boundaryThermal[boundaryConnect[ib]]);
+                                                (boundaryThermal[ib] - boundaryThermal[boundaryConnect[ib]]);
                                     // mesh->Boundaries[ie].ee_bound[jface]->set(inf,iband,e);
                                     eboundLocal[iband_local * numBound * 2 + ib * 2 + icell] = e;
-                                } else {
-                                    eboundLocal[iband_local * numBound * 2 + ib * 2 + icell] = ebound[
-                                            iband * numDirection * numBound * 2 + inf * numBound * 2 + ib * 2 + icell];
                                 }
-                            } else {
-                                eboundLocal[iband_local * numBound * 2 + ib * 2 + icell] = ebound[
-                                        iband * numDirection * numBound * 2 + inf * numBound * 2 + ib * 2 + icell];
+                                else
+                                {
+                                    eboundLocal[iband_local * numBound * 2 + ib * 2 + icell] = ebound[iband * numDirection * numBound * 2 + inf * numBound * 2 + ib * 2 + icell];
+                                }
                             }
-                        } else {
-                            eboundLocal[iband_local * numBound * 2 + ib * 2 + icell] = ebound[
-                                    iband * numDirection * numBound * 2 + inf * numBound * 2 + ib * 2 + icell];
+                            else
+                            {
+                                eboundLocal[iband_local * numBound * 2 + ib * 2 + icell] = ebound[iband * numDirection * numBound * 2 + inf * numBound * 2 + ib * 2 + icell];
+                            }
+                        }
+                        else
+                        {
+                            eboundLocal[iband_local * numBound * 2 + ib * 2 + icell] = ebound[iband * numDirection * numBound * 2 + inf * numBound * 2 + ib * 2 + icell];
                         }
                     }
-
                 }
-
-
             }
-            //cout<<endl;
-            for (int i = 0; i < numBound * 2; ++i) {
+            // cout<<endl;
+            for (int i = 0; i < numBound * 2; ++i)
+            {
                 // cout<<eboundLocal[iband_local*numBound*2+i]<<endl;
             }
             MPI_Allgather(eboundLocal + iband_local * numBound * 2,
                           numBound * 2,
                           MPI_DOUBLE,
                           (ebound + numBound * 2 * (inf - worldRank % numDirection)) +
-                          numDirection * numBound * 2 * (iband - worldRank / numDirection),
+                              numDirection * numBound * 2 * (iband - worldRank / numDirection),
                           numBound * 2,
                           MPI_DOUBLE,
                           MPI_COMM_WORLD);
@@ -767,28 +1120,34 @@ void Transient::_set_bound_ee_1() const {
     }
 }
 
-void Transient::_recover_temperature(int iband_local, int inf_local) const {
-    int inf = ((inf_local) * numProc + worldRank) % numDirection;
+void Transient::_recover_temperature(int iband_local, int inf_local) const
+{
+    int inf = ((inf_local)*numProc + worldRank) % numDirection;
     int iband = iband_local * (ceil(double(numProc) / double(numDirection))) + worldRank / numDirection;
-    for (int ie = 0; ie < numCell; ++ie) {
+    for (int ie = 0; ie < numCell; ++ie)
+    {
         temperatureLocal[ie] += latticeRatio[matter[ie]][iband][inf] * energyDensity[iband_local][inf_local][ie] *
                                 modeWeight[matter[ie]][iband][inf] / heatCapacity[matter[ie]][iband][inf];
     }
 }
 
-void Transient::_get_total_energy(int iband_local, int inf_local) const {
-    int inf = ((inf_local) * numProc + worldRank) % numDirection;
+void Transient::_get_total_energy(int iband_local, int inf_local) const
+{
+    int inf = ((inf_local)*numProc + worldRank) % numDirection;
     int iband = iband_local * (ceil(double(numProc) / double(numDirection))) + worldRank / numDirection;
-    for (int ie = 0; ie < numCell; ++ie) {
+    for (int ie = 0; ie < numCell; ++ie)
+    {
         totalEnergyLocal[ie] += energyDensity[iband_local][inf_local][ie] * modeWeight[matter[ie]][iband][inf] /
                                 capacityBulk[matter[ie]];
     }
 }
 
-void Transient::_get_heat_flux(int iband_local, int inf_local) const {
-    int inf = ((inf_local) * numProc + worldRank) % numDirection;
+void Transient::_get_heat_flux(int iband_local, int inf_local) const
+{
+    int inf = ((inf_local)*numProc + worldRank) % numDirection;
     int iband = iband_local * (ceil(double(numProc) / double(numDirection))) + worldRank / numDirection;
-    for (int ie = 0; ie < numCell; ++ie) {
+    for (int ie = 0; ie < numCell; ++ie)
+    {
         heatFluxXLocal[ie] += groupVelocityX[matter[ie]][iband][inf] * modeWeight[matter[ie]][iband][inf] *
                               energyDensity[iband_local][inf_local][ie];
         heatFluxYLocal[ie] += groupVelocityY[matter[ie]][iband][inf] * modeWeight[matter[ie]][iband][inf] *
@@ -798,39 +1157,48 @@ void Transient::_get_heat_flux(int iband_local, int inf_local) const {
     }
 }
 
-bool Transient::_get_magin_check_error(int nt, double error_temp_limit, double error_flux_limit) {
+bool Transient::_get_magin_check_error(int nt, double error_temp_limit, double error_flux_limit)
+{
     error = 0;
     double Tempmax = 0;
-    for (int i = 0; i < numCell; ++i) {
-        if (Tempmax < abs(temperature[i])) {
+    for (int i = 0; i < numCell; ++i)
+    {
+        if (Tempmax < abs(temperature[i]))
+        {
             Tempmax = abs(temperature[i]);
         }
     }
-    for (int i = 0; i < numCell; ++i) {
+    for (int i = 0; i < numCell; ++i)
+    {
         error += sqrt(pow(temperature[i] - temperatureOld[i], 2));
     }
     error = error / numCell / Tempmax;
     error_heat = 0;
     double heat_max = 0;
-    for (int i = 0; i < numCell; ++i) {
+    for (int i = 0; i < numCell; ++i)
+    {
         double heat = sqrt(pow(heatFluxXGlobal[i], 2) + pow(heatFluxYGlobal[i], 2) + pow(heatFluxZGlobal[i], 2));
         double heat1 = sqrt(pow(heatFluxXOld[i], 2) + pow(heatFluxYOld[i], 2) + pow(heatFluxZOld[i], 2));
-        if (heat_max < heat) {
+        if (heat_max < heat)
+        {
             heat_max = heat;
         }
         error_heat += abs(heat - heat1);
-
     }
     error_heat = error_heat / numCell / heat_max;
-    if (worldRank == 0) {
+    if (worldRank == 0)
+    {
         cout << "----------------------------------------------------------------------------------" << endl;
         cout << "Iteration #" << nt << "\t Margin per band per cell: Temperature:" << error << " Heat Flux:"
              << error_heat << endl;
     }
     if ((error > errorOld && error_heat > errorOld_heat) || isnan(error) || isnan(error_heat) || isinf(error_heat) ||
-        isinf(error)) {
+        isinf(error))
+    {
         errorIncreaseTime++;
-    } else {
+    }
+    else
+    {
         errorIncreaseTime = 0;
     }
     errorOld = error;
@@ -838,41 +1206,49 @@ bool Transient::_get_magin_check_error(int nt, double error_temp_limit, double e
     return (error <= error_temp_limit && error_heat <= error_flux_limit);
 }
 
-void Transient::_print_out() const {
+void Transient::_print_out() const
+{
     ofstream output("Tempcell.dat");
-    for (int i = 0; i < numCell; ++i) {
+    for (int i = 0; i < numCell; ++i)
+    {
         output << elementCenterX[i] << " " << elementCenterY[i] << " " << elementCenterZ[i] << " " << temperature[i]
                << endl;
     }
     output.close();
     ofstream output1("Tempcell1.dat");
-    for (int i = 0; i < numCell; ++i) {
+    for (int i = 0; i < numCell; ++i)
+    {
         output1 << elementCenterX[i] << " " << elementCenterY[i] << " " << elementCenterZ[i] << " " << temperature1[i]
                 << endl;
     }
     output1.close();
     ofstream output2("HeatSource.dat");
-    for (int i = 0; i < numCell; ++i) {
+    for (int i = 0; i < numCell; ++i)
+    {
         output2 << elementCenterX[i] << " " << elementCenterY[i] << " " << elementCenterZ[i] << " "
                 << elementHeatSource[i] << endl;
     }
     output2.close();
     ofstream outputheat("HeatFlux.dat");
-    for (int i = 0; i < numCell; ++i) {
+    for (int i = 0; i < numCell; ++i)
+    {
         outputheat << setw(15) << elementCenterX[i] << setw(15) << elementCenterY[i] << setw(15) << elementCenterZ[i]
                    << setw(15) << heatFluxXGlobal[i] << setw(15) << heatFluxYGlobal[i] << setw(15) << heatFluxZGlobal[i]
                    << endl;
     }
 }
 
-void Transient::copy() const {
-    for (int i = 0; i < numCell; ++i) {
+void Transient::copy() const
+{
+    for (int i = 0; i < numCell; ++i)
+    {
         temperatureOld[i] = temperature[i];
         heatFluxXOld[i] = heatFluxXGlobal[i];
         heatFluxYOld[i] = heatFluxYGlobal[i];
         heatFluxZOld[i] = heatFluxZGlobal[i];
     }
-    for (int i = 0; i < numCell; ++i) {
+    for (int i = 0; i < numCell; ++i)
+    {
         temperatureLocal[i] = 0;
         heatFluxXLocal[i] = 0;
         heatFluxYLocal[i] = 0;
@@ -881,122 +1257,143 @@ void Transient::copy() const {
         heatFluxXGlobal[i] = 0;
         heatFluxYGlobal[i] = 0;
         heatFluxZGlobal[i] = 0;
-
-
     }
-    for (int i = 0; i < numBandLocal * numBound * 2; ++i) {
+    for (int i = 0; i < numBandLocal * numBound * 2; ++i)
+    {
         eboundLocal[i] = 0;
     }
 }
 
-void Transient::_delete_cell_matrix() const {
+void Transient::_delete_cell_matrix() const
+{
 
-    for (int i = 0; i < numCell; ++i) {
+    for (int i = 0; i < numCell; ++i)
+    {
 
-        for (int j = 0; j < 3; ++j) {
+        for (int j = 0; j < 3; ++j)
+        {
             delete[] CellMatrix[i][j];
         }
-        delete[]  CellMatrix[i];
+        delete[] CellMatrix[i];
     }
     delete[] CellMatrix;
 }
 
-void Transient::_set_cell_matrix_larger() {
+void Transient::_set_cell_matrix_larger()
+{
     CellMatrix = new double **[numCell];
-    for (int i = 0; i < numCell; ++i) {
+    for (int i = 0; i < numCell; ++i)
+    {
         CellMatrix[i] = new double *[3];
-        for (int j = 0; j < 3; ++j) {
+        for (int j = 0; j < 3; ++j)
+        {
             CellMatrix[i][j] = new double[elementNeighborList[i].size()];
         }
     }
-
 }
 
-void Transient::_get_CellMatrix_larger() const {
-    if (dimension == 2) {
-        for (int i = 0; i < numCell; ++i) {
+void Transient::_get_CellMatrix_larger() const
+{
+    if (dimension == 2)
+    {
+        for (int i = 0; i < numCell; ++i)
+        {
 
             vector<double> d1(elementNeighborList[i].size(), 0);
             vector<vector<double>> J1;
             J1.resize(elementNeighborList[i].size());
-            for (int j = 0; j < elementNeighborList[i].size(); ++j) {
+            for (int j = 0; j < elementNeighborList[i].size(); ++j)
+            {
                 J1[j].resize(2);
             }
 
-            for (int j = 0; j < elementNeighborList[i].size(); ++j) {
+            for (int j = 0; j < elementNeighborList[i].size(); ++j)
+            {
 
                 J1[j][0] = (1.0 / L_x * (elementCenterX[elementNeighborList[i][j]] - elementCenterX[i]));
                 J1[j][1] = (1.0 / L_x * (elementCenterY[elementNeighborList[i][j]] - elementCenterY[i]));
-                //d1[nump] = 1.0/L_x * (energyDensity[iband_local][inf_local][elementFaceNeighobr[j+i*6]] - energyDensity[iband_local][inf_local][i]);
-
+                // d1[nump] = 1.0/L_x * (energyDensity[iband_local][inf_local][elementFaceNeighobr[j+i*6]] - energyDensity[iband_local][inf_local][i]);
             }
-            if (elementNeighborList[i].size() > 2) {
+            if (elementNeighborList[i].size() > 2)
+            {
                 Get_inverse_2D(CellMatrix[i], J1);
             }
-
         }
-    } else if (dimension == 3) {
-        for (int i = 0; i < numCell; ++i) {
+    }
+    else if (dimension == 3)
+    {
+        for (int i = 0; i < numCell; ++i)
+        {
 
             vector<double> d1(elementNeighborList[i].size(), 0);
             vector<vector<double>> J1;
             J1.resize(elementNeighborList[i].size());
-            for (int j = 0; j < elementNeighborList[i].size(); ++j) {
+            for (int j = 0; j < elementNeighborList[i].size(); ++j)
+            {
                 J1[j].resize(3);
             }
 
-            for (int j = 0; j < elementNeighborList[i].size(); ++j) {
+            for (int j = 0; j < elementNeighborList[i].size(); ++j)
+            {
 
                 J1[j][0] = (1.0 / L_x * (elementCenterX[elementNeighborList[i][j]] - elementCenterX[i]));
                 J1[j][1] = (1.0 / L_x * (elementCenterY[elementNeighborList[i][j]] - elementCenterY[i]));
                 J1[j][2] = (1.0 / L_x * (elementCenterZ[elementNeighborList[i][j]] - elementCenterZ[i]));
 
-                //d1[nump] = 1.0/L_x * (energyDensity[iband_local][inf_local][elementFaceNeighobr[j+i*6]] - energyDensity[iband_local][inf_local][i]);
-
+                // d1[nump] = 1.0/L_x * (energyDensity[iband_local][inf_local][elementFaceNeighobr[j+i*6]] - energyDensity[iband_local][inf_local][i]);
             }
-            if (elementNeighborList[i].size() > 3) {
+            if (elementNeighborList[i].size() > 3)
+            {
                 Get_inverse_3D(CellMatrix[i], J1);
             }
-
         }
     }
 }
 
-void Transient::_get_gradient_larger(int Use_limiter, int iband_local, int inf_local) const {
-    int inf = ((inf_local) * numProc + worldRank) % numDirection;
+void Transient::_get_gradient_larger(int Use_limiter, int iband_local, int inf_local) const
+{
+    int inf = ((inf_local)*numProc + worldRank) % numDirection;
     int iband = iband_local * (ceil(double(numProc) / double(numDirection))) + worldRank / numDirection;
-    for (int i = 0; i < numCell; ++i) {
+    for (int i = 0; i < numCell; ++i)
+    {
         gradientX[i] = 0;
         gradientY[i] = 0;
         gradientZ[i] = 0;
         limit[i] = 1;
     }
-    if (dimension == 1) {
-        for (int ie = 0; ie < numCell; ++ie) {
-            if (elementFaceBound[ie * 6] == -1 && elementFaceBound[ie * 6 + 1] == -1) {
+    if (dimension == 1)
+    {
+        for (int ie = 0; ie < numCell; ++ie)
+        {
+            if (elementFaceBound[ie * 6] == -1 && elementFaceBound[ie * 6 + 1] == -1)
+            {
                 double s1 =
-                        (energyDensity[iband_local][inf_local][ie] - energyDensity[iband_local][inf_local][ie - 1]) /
-                        (elementVolume[ie] / 2 + elementVolume[ie - 1] / 2);
+                    (energyDensity[iband_local][inf_local][ie] - energyDensity[iband_local][inf_local][ie - 1]) /
+                    (elementVolume[ie] / 2 + elementVolume[ie - 1] / 2);
                 double s2 =
-                        (energyDensity[iband_local][inf_local][ie + 1] - energyDensity[iband_local][inf_local][ie]) /
-                        (elementVolume[ie] / 2 + elementVolume[ie + 1] / 2);
+                    (energyDensity[iband_local][inf_local][ie + 1] - energyDensity[iband_local][inf_local][ie]) /
+                    (elementVolume[ie] / 2 + elementVolume[ie + 1] / 2);
                 if ((abs(s1) + abs(s2)) != 0)
                     gradientX[ie] = (sgn(s1) + sgn(s2)) * abs(s1) * abs(s2) / (abs(s1) + abs(s2));
                 else
                     gradientX[ie] = 0;
-            } else if (elementFaceBound[ie * 6] != -1) {
+            }
+            else if (elementFaceBound[ie * 6] != -1)
+            {
                 double s1 =
-                        (energyDensity[iband_local][inf_local][ie + 1] - energyDensity[iband_local][inf_local][ie]) /
-                        (elementVolume[ie] / 2 + elementVolume[ie + 1] / 2);
+                    (energyDensity[iband_local][inf_local][ie + 1] - energyDensity[iband_local][inf_local][ie]) /
+                    (elementVolume[ie] / 2 + elementVolume[ie + 1] / 2);
                 double s2 = s1;
                 if ((abs(s1) + abs(s2)) != 0)
                     gradientX[ie] = (sgn(s1) + sgn(s2)) * abs(s1) * abs(s2) / (abs(s1) + abs(s2));
                 else
                     gradientX[ie] = 0;
-            } else if (elementFaceBound[ie * 6 + 1] != -1) {
+            }
+            else if (elementFaceBound[ie * 6 + 1] != -1)
+            {
                 double s1 =
-                        (energyDensity[iband_local][inf_local][ie] - energyDensity[iband_local][inf_local][ie - 1]) /
-                        (elementVolume[ie] / 2 + elementVolume[ie - 1] / 2);
+                    (energyDensity[iband_local][inf_local][ie] - energyDensity[iband_local][inf_local][ie - 1]) /
+                    (elementVolume[ie] / 2 + elementVolume[ie - 1] / 2);
                 double s2 = s1;
                 if ((abs(s1) + abs(s2)) != 0)
                     gradientX[ie] = (sgn(s1) + sgn(s2)) * abs(s1) * abs(s2) / (abs(s1) + abs(s2));
@@ -1004,117 +1401,150 @@ void Transient::_get_gradient_larger(int Use_limiter, int iband_local, int inf_l
                     gradientX[ie] = 0;
             }
         }
-    } else if (dimension == 2) {
-        for (int i = 0; i < numCell; ++i) {
-            if (elementNeighborList[i].size() < 3) {
+    }
+    else if (dimension == 2)
+    {
+        for (int i = 0; i < numCell; ++i)
+        {
+            if (elementNeighborList[i].size() < 3)
+            {
                 gradientX[i] = 0;
                 gradientY[i] = 0;
                 gradientZ[i] = 0;
-            } else {
+            }
+            else
+            {
                 vector<double> d1(elementNeighborList[i].size(), 0);
-                //vector<vector<double>> J1(nump);
-                for (int j = 0; j < elementNeighborList[i].size(); ++j) {
-                    d1[j] = 1.0 / L_x * (energyDensity[iband_local][inf_local][elementNeighborList[i][j]] -
-                                         energyDensity[iband_local][inf_local][i]);
+                // vector<vector<double>> J1(nump);
+                for (int j = 0; j < elementNeighborList[i].size(); ++j)
+                {
+                    d1[j] = 1.0 / L_x * (energyDensity[iband_local][inf_local][elementNeighborList[i][j]] - energyDensity[iband_local][inf_local][i]);
                 }
                 vec gradient;
                 gradient.x = 0;
                 gradient.y = 0;
                 gradient.z = 0;
-                for (int m = 0; m < d1.size(); ++m) {
+                for (int m = 0; m < d1.size(); ++m)
+                {
                     gradient.x += CellMatrix[i][0][m] * d1[m];
                     gradient.y += CellMatrix[i][1][m] * d1[m];
-                    //cout<<CellMatrix[i][0][m]<<" "<<CellMatrix[i][1][m]<<endl;
+                    // cout<<CellMatrix[i][0][m]<<" "<<CellMatrix[i][1][m]<<endl;
                 }
-                if (isnan(gradient.x) || isnan(gradient.y) || isnan(gradient.z)) {
+                if (isnan(gradient.x) || isnan(gradient.y) || isnan(gradient.z))
+                {
                     gradientX[i] = 0;
                     gradientY[i] = 0;
                     gradientZ[i] = 0;
-                } else {
+                }
+                else
+                {
                     gradientX[i] = gradient.x;
                     gradientY[i] = gradient.y;
                     gradientZ[i] = gradient.z;
                 }
-
             }
         }
-    } else if (dimension == 3) {
-        for (int i = 0; i < numCell; ++i) {
-            if (elementNeighborList[i].size() < 3) {
+    }
+    else if (dimension == 3)
+    {
+        for (int i = 0; i < numCell; ++i)
+        {
+            if (elementNeighborList[i].size() < 3)
+            {
                 gradientX[i] = 0;
                 gradientY[i] = 0;
                 gradientZ[i] = 0;
-            } else {
+            }
+            else
+            {
                 vector<double> d1(elementNeighborList[i].size(), 0);
-                //vector<vector<double>> J1(nump);
-                for (int j = 0; j < elementNeighborList[i].size(); ++j) {
-                    d1[j] = 1.0 / L_x * (energyDensity[iband_local][inf_local][elementNeighborList[i][j]] -
-                                         energyDensity[iband_local][inf_local][i]);
+                // vector<vector<double>> J1(nump);
+                for (int j = 0; j < elementNeighborList[i].size(); ++j)
+                {
+                    d1[j] = 1.0 / L_x * (energyDensity[iband_local][inf_local][elementNeighborList[i][j]] - energyDensity[iband_local][inf_local][i]);
                 }
                 vec gradient;
                 gradient.x = 0;
                 gradient.y = 0;
                 gradient.z = 0;
-                for (int m = 0; m < d1.size(); ++m) {
+                for (int m = 0; m < d1.size(); ++m)
+                {
                     gradient.x += CellMatrix[i][0][m] * d1[m];
                     gradient.y += CellMatrix[i][1][m] * d1[m];
                     gradient.z += CellMatrix[i][2][m] * d1[m];
                 }
-                if (isnan(gradient.x) || isnan(gradient.y) || isnan(gradient.z)) {
+                if (isnan(gradient.x) || isnan(gradient.y) || isnan(gradient.z))
+                {
                     gradientX[i] = 0;
                     gradientY[i] = 0;
                     gradientZ[i] = 0;
-                } else {
+                }
+                else
+                {
                     gradientX[i] = gradient.x;
                     gradientY[i] = gradient.y;
                     gradientZ[i] = gradient.z;
                 }
-
             }
         }
     }
-    if (Use_limiter == 1) {
-        for (int i = 0; i < numCell; ++i) {
+    if (Use_limiter == 1)
+    {
+        for (int i = 0; i < numCell; ++i)
+        {
             double max = energyDensity[iband_local][inf_local][i];
             double min = energyDensity[iband_local][inf_local][i];
-            for (int j = 0; j < elementFaceSize[i]; ++j) {
-                if (elementFaceBound[i * 6 + j] == -1) {
-                    if (energyDensity[iband_local][inf_local][elementFaceNeighobr[j + i * 6]] > max) {
+            for (int j = 0; j < elementFaceSize[i]; ++j)
+            {
+                if (elementFaceBound[i * 6 + j] == -1)
+                {
+                    if (energyDensity[iband_local][inf_local][elementFaceNeighobr[j + i * 6]] > max)
+                    {
                         max = energyDensity[iband_local][inf_local][elementFaceNeighobr[j + i * 6]];
                     }
-                    if (energyDensity[iband_local][inf_local][elementFaceNeighobr[j + i * 6]] < min) {
+                    if (energyDensity[iband_local][inf_local][elementFaceNeighobr[j + i * 6]] < min)
+                    {
                         min = energyDensity[iband_local][inf_local][elementFaceNeighobr[j + i * 6]];
                     }
-                } else if (boundaryType[elementFaceBound[i * 6 + j]] != 3 &&
-                           groupVelocityX[matter[i]][iband][inf] * elementFaceNormX[j + i * 6] +
-                           groupVelocityY[matter[i]][iband][inf]
-                           * elementFaceNormY[j + i * 6] +
-                           groupVelocityZ[matter[i]][iband][inf] * elementFaceNormZ[j + i * 6] < 0) {
+                }
+                else if (boundaryType[elementFaceBound[i * 6 + j]] != 3 &&
+                         groupVelocityX[matter[i]][iband][inf] * elementFaceNormX[j + i * 6] +
+                                 groupVelocityY[matter[i]][iband][inf] * elementFaceNormY[j + i * 6] +
+                                 groupVelocityZ[matter[i]][iband][inf] * elementFaceNormZ[j + i * 6] <
+                             0)
+                {
                     if (ebound[iband * numDirection * numBound * 2 + inf * numBound * 2 +
-                               elementFaceBound[i * 6 + j] * 2 + 0] > max) {
+                               elementFaceBound[i * 6 + j] * 2 + 0] > max)
+                    {
                         max = ebound[iband * numDirection * numBound * 2 + inf * numBound * 2 +
                                      elementFaceBound[i * 6 + j] * 2 + 0];
                     }
                     if (ebound[iband * numDirection * numBound * 2 + inf * numBound * 2 +
-                               elementFaceBound[i * 6 + j] * 2 + 0] < min) {
+                               elementFaceBound[i * 6 + j] * 2 + 0] < min)
+                    {
                         min = ebound[iband * numDirection * numBound * 2 + inf * numBound * 2 +
                                      elementFaceBound[i * 6 + j] * 2 + 0];
                     }
                 }
             }
-            for (int j = 0; j < elementFaceSize[i]; ++j) {
+            for (int j = 0; j < elementFaceSize[i]; ++j)
+            {
                 double ax = elementFaceCenterX[i * 6 + j] - elementCenterX[i];
                 double ay = elementFaceCenterY[i * 6 + j] - elementCenterY[i];
                 double az = elementFaceCenterZ[i * 6 + j] - elementCenterZ[i];
                 if ((gradientX[i] * ax + gradientY[i] * ay + gradientZ[i] * az) * limit[i] +
-                    energyDensity[iband_local][inf_local][i] < min) {
+                        energyDensity[iband_local][inf_local][i] <
+                    min)
+                {
                     double y = (min - energyDensity[iband_local][inf_local][i]) /
                                (gradientX[i] * ax + gradientY[i] * ay + gradientZ[i] * az);
 
                     limit[i] = (pow(y, 2) + 2 * y) / (pow(y, 2) + y + 2);
                 }
                 if ((gradientX[i] * ax + gradientY[i] * ay + gradientZ[i] * az) * limit[i] +
-                    energyDensity[iband_local][inf_local][i] > max) {
+                        energyDensity[iband_local][inf_local][i] >
+                    max)
+                {
                     double y = (max - energyDensity[iband_local][inf_local][i]) /
                                (gradientX[i] * ax + gradientY[i] * ay + gradientZ[i] * az);
                     limit[i] = (pow(y, 2) + 2 * y) / (pow(y, 2) + y + 2);
@@ -1124,31 +1554,35 @@ void Transient::_get_gradient_larger(int Use_limiter, int iband_local, int inf_l
     }
 }
 
-
 void Transient::_get_explicit_Re(int itime, int spatial_order, int Use_limiter, int iband_local, int inf_local,
-                                 double deltaTime) {
-    int inf = ((inf_local) * numProc + worldRank) % numDirection;
+                                 double deltaTime)
+{
+    int inf = ((inf_local)*numProc + worldRank) % numDirection;
     int iband = iband_local * (ceil(double(numProc) / double(numDirection))) + worldRank / numDirection;
 
-    for (int i = 0; i < numCell; ++i) {
+    for (int i = 0; i < numCell; ++i)
+    {
         Re[i] = 0;
     }
-    //maxy要加在前面
+    // maxy要加在前面
     double max_y = 0;
-    for (int ie = 0; ie < numCell; ie++) {
-        if (elementCenterY[ie] > max_y) {
+    for (int ie = 0; ie < numCell; ie++)
+    {
+        if (elementCenterY[ie] > max_y)
+        {
             max_y = elementCenterY[ie];
         }
     }
 
-    //internal
-    for (int ie = 0; ie < numCell; ++ie) {
-        for (int jface = 0; jface < elementFaceSize[ie]; ++jface) {
-            double dotproduct = (groupVelocityX[matter[ie]][iband][inf] * elementFaceNormX[jface + ie * 6]
-                                 + groupVelocityY[matter[ie]][iband][inf] * elementFaceNormY[jface + ie * 6]
-                                 + groupVelocityZ[matter[ie]][iband][inf] * elementFaceNormZ[jface + ie * 6]);
-            double temp = elementFaceArea[jface + ie * 6] / elementVolume[ie] * dotproduct;           //
-            if (dotproduct >= 0) {
+    // internal
+    for (int ie = 0; ie < numCell; ++ie)
+    {
+        for (int jface = 0; jface < elementFaceSize[ie]; ++jface)
+        {
+            double dotproduct = (groupVelocityX[matter[ie]][iband][inf] * elementFaceNormX[jface + ie * 6] + groupVelocityY[matter[ie]][iband][inf] * elementFaceNormY[jface + ie * 6] + groupVelocityZ[matter[ie]][iband][inf] * elementFaceNormZ[jface + ie * 6]);
+            double temp = elementFaceArea[jface + ie * 6] / elementVolume[ie] * dotproduct; //
+            if (dotproduct >= 0)
+            {
                 double ax = elementFaceCenterX[jface + ie * 6] - elementCenterX[ie];
                 double ay = elementFaceCenterY[jface + ie * 6] - elementCenterY[ie];
                 double az = elementFaceCenterZ[jface + ie * 6] - elementCenterZ[ie];
@@ -1156,38 +1590,45 @@ void Transient::_get_explicit_Re(int itime, int spatial_order, int Use_limiter, 
                             (ax * gradientX[ie] + ay * gradientY[ie] + az * gradientZ[ie]) * limit[ie]);
                 Re[ie] += temp * e;
                 // if(ie==0)
-                //cout<<ie<<"dot>0 "<<temp<<"  "<<e<<endl;
-            } else {
-                if (elementFaceBound[jface + ie * 6] == -1) {
+                // cout<<ie<<"dot>0 "<<temp<<"  "<<e<<endl;
+            }
+            else
+            {
+                if (elementFaceBound[jface + ie * 6] == -1)
+                {
                     int neiindex = elementFaceNeighobr[jface + ie * 6];
                     double ax = elementFaceCenterX[jface + ie * 6] - elementCenterX[neiindex];
                     double ay = elementFaceCenterY[jface + ie * 6] - elementCenterY[neiindex];
                     double az = elementFaceCenterZ[jface + ie * 6] - elementCenterZ[neiindex];
                     double e = (energyDensity[iband_local][inf_local][neiindex] +
                                 (ax * gradientX[neiindex] + ay * gradientY[neiindex] + az * gradientZ[neiindex]) *
-                                limit[neiindex]);
+                                    limit[neiindex]);
                     Re[ie] += temp * e;
-                    //if(ie==0)
-                    //cout<<ie<<"dot<0 "<<temp<<"  "<<e<<endl;
+                    // if(ie==0)
+                    // cout<<ie<<"dot<0 "<<temp<<"  "<<e<<endl;
                 }
             }
         }
-        //equlibrium
+        // equlibrium
         Re[ie] -= temperatureOld[ie] * heatCapacity[matter[ie]][iband][inf] / relaxationTime[matter[ie]][iband][inf];
-        //TDTR_heatsource
-        if (use_TDTR == 1) {
+        // TDTR_heatsource
+        if (use_TDTR == 1)
+        {
             double heatindex = 0;
             int times = pulse_time / deltaTime;
             int new_itime = itime / times;
             int tt = 1.0 / repetition_frequency * 1e-6 / deltaTime;
             int numheat = (new_itime) / tt;
-            int checkheat = (new_itime) - numheat * tt;
+            int checkheat = (new_itime)-numheat * tt;
             double interg = 1.0;
             double TT = 1.0 / (tt * (repetition_frequency / modulation_frequency) * deltaTime);
-            if (checkheat > 1) {
+            if (checkheat > 1)
+            {
                 heatindex = 0;
-            } else {
-                interg = interg + (double) (new_itime);
+            }
+            else
+            {
+                interg = interg + (double)(new_itime);
                 heatindex = sin(interg * deltaTime * 2 * PI * TT) + 1;
             }
             double h = heatindex * heatRatio[matter[ie]][iband][inf] * elementHeatSource[ie];
@@ -1195,17 +1636,19 @@ void Transient::_get_explicit_Re(int itime, int spatial_order, int Use_limiter, 
         }
     }
 
-    for (int ib = 0; ib < numBound; ++ib) {
-        for (int icell = 0; icell < 2; ++icell) {
+    for (int ib = 0; ib < numBound; ++ib)
+    {
+        for (int icell = 0; icell < 2; ++icell)
+        {
             int ie = boundaryCell[ib][icell];
             int jface = boundaryFace[ib][icell];
-            //cout<<"  ie "<<ie<<"  dot "<<endl;
-            if (ie >= 0) {
-                double dotproduct = (groupVelocityX[matter[ie]][iband][inf] * elementFaceNormX[jface + ie * 6]
-                                     + groupVelocityY[matter[ie]][iband][inf] * elementFaceNormY[jface + ie * 6]
-                                     + groupVelocityZ[matter[ie]][iband][inf] * elementFaceNormZ[jface + ie * 6]);
+            // cout<<"  ie "<<ie<<"  dot "<<endl;
+            if (ie >= 0)
+            {
+                double dotproduct = (groupVelocityX[matter[ie]][iband][inf] * elementFaceNormX[jface + ie * 6] + groupVelocityY[matter[ie]][iband][inf] * elementFaceNormY[jface + ie * 6] + groupVelocityZ[matter[ie]][iband][inf] * elementFaceNormZ[jface + ie * 6]);
                 // cout<<"  ie "<<ie<<"  dot "<<dotproduct<<"  groupVelocityX[matter[ie]][iband][inf]"<<groupVelocityX[matter[ie]][iband][inf]<<"iband local"<<iband<<"  "<<iband_local<<"inf local"<<inf<<"  "<<inf_local<<" elementFaceNormX[jface + ie * 6] "<<elementFaceNormX[jface + ie * 6]<<endl;
-                if (dotproduct < 0) {
+                if (dotproduct < 0)
+                {
                     double temp = elementFaceArea[jface + ie * 6] / elementVolume[ie] * dotproduct;
                     Re[ie] += temp * ebound[iband * numDirection * numBound * 2 + inf * numBound * 2 + ib * 2 + icell];
                     //   cout<<"eebound "<<ebound[iband * numDirection * numBound * 2 + inf * numBound * 2 + ib * 2 + icell]<<endl;
