@@ -1125,6 +1125,9 @@ void Transient::_get_gradient_larger(int Use_limiter, int iband_local, int inf_l
 }
 
 
+#ifdef USE_GPU
+__device__
+#endif
 void Transient::_get_explicit_Re(int itime, int spatial_order, int Use_limiter, int iband_local, int inf_local,
                                  double deltaTime) {
     int inf = ((inf_local) * numProc + worldRank) % numDirection;

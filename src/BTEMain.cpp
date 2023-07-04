@@ -10,6 +10,11 @@
 #include "TransientFourier/TransientFourier.h"
 #include "BTEMesh/Distribute.h"
 #include "Solution/Solution.h"
+
+#ifdef USE_GPU
+#include "TransientBTE/transient.h"
+#endif
+
 using namespace std;
 
 int main(int argc, char **argv)
@@ -299,8 +304,6 @@ int main(int argc, char **argv)
     BTEAngle *angles;
     angles = new BTEAngle(Num_Theta, Num_Phi, Dimension_Material, Angle_method);
 
-#ifndef USE_GPU
-
     SolutionAll solutionAll(distributeMesh,bcs,bands,angles,num_proc,world_rank);
     solutionAll._set_initial(distributeMesh,bands,angles);
     if(State != "Transient")
@@ -324,10 +327,7 @@ int main(int argc, char **argv)
 
     //TransientFourier fourierTransient(mesh, bcs, bands,num_proc, world_rank);
     //fourierTransient._solve();
-#else
-    StaticBTESolver solver(mesh, bcs, bands, angles, num_proc, world_rank, Num_Theta, Num_Phi);
-    solver.solve(Use_Backup, Num_Max_Iter, Use_Sythetic, Use_Limiter, error_temp_limit, error_flux_limit);
-#endif
+
     if (world_rank == 0)
     {
         cout << "******************************" << endl << "Calculation Finished !" << endl << "******************************" << endl;

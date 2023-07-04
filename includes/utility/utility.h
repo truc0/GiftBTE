@@ -267,7 +267,8 @@ double *_solve_matrix(int *RowPtr, int *ColInd, double *Val, double *Re, int N_c
 double *_solve_matrix_hypre(int *csrRowPtr, int *csrColInd, double *csrVal, std::vector<double> &Re, int N_cell, int world_rank, int num_proc);
 double *_solve_matrix_hypre(int *RowPtr, int *ColInd, double *Val, double *Re, int N_cell, int world_rank, int num_proc);
 bool ishave(int a,const std::vector<int>& array);
-
+#else
+bool ishave(int a,const std::vector<int>& array);
 #endif
 
 #endif 

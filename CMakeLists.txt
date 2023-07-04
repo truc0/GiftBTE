@@ -7,7 +7,7 @@ set(CMAKE_MODULE_PATH "${PROJECT_SOURCE_DIR}/cmake-modules")
 set(EXECUTABLE_OUTPUT_PATH ${PROJECT_SOURCE_DIR}/bin)
 set(CMAKE_ARCHIVE_OUTPUT_DIRECTORY ${PROJECT_SOURCE_DIR}/lib)
 
-option(USE_GPU "compile as GPU version" off)
+option(USE_GPU "compile as GPU version" ON)
 option(USE_MRM "compile as Memory_reduced_version" off)
 option(USE_TIME "time each process" off)
 
@@ -18,9 +18,11 @@ else()
 endif()
 
 if(USE_GPU)
-    find_package(CUDA REQUIRED)
-    include_directories(${CUDA_INCLUDE_DIRS})
-    link_directories(${CUDA_LIBRARY_DIRS})
+    cmake_minimum_required(VERSION 3.18)
+    find_package(CUDAToolkit REQUIRED)
+    set(CMAKE_CUDA_STANDARD 14)
+    enable_language(CUDA)
+    # add_definitions(-DUSE_GPU)
 endif()
 
 if(CMAKE_PROJECT_NAME STREQUAL PROJECT_NAME)
@@ -30,4 +32,3 @@ if(CMAKE_PROJECT_NAME STREQUAL PROJECT_NAME)
 endif()
 
 add_subdirectory(src)
-

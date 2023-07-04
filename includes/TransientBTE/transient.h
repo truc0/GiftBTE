@@ -196,13 +196,13 @@ class Transient
 
             void _get_gradient_larger(int Use_limiter, int iband_local, int inf_local) const;
 
-
             void solve(int Use_Backup, double error_temp_limit, double error_flux_limit,double deltaT,double totalT,int use_TDTR,double pulse_time,double repetition_frequency,double modulation_frequency,double xy_r);
-
             void solve_first_order(int Use_Backup, int Use_Limiter, double error_temp_limit, double error_flux_limit,double deltaT,double totalT);
-
-
 
             ~Transient();
         };
+
+#ifdef USE_GPU
+//    __global__ void ttdr_iteration();
+#endif
 #endif //STATICBTESOLVER_TRANSIENT_H

@@ -28,8 +28,8 @@ void Transient::solve(int Use_Backup, double error_temp_limit, double error_flux
 
     for (int ib = 0; ib < numBound; ++ib) {
         for (int inf_local = 0; inf_local < numDirectionLocal; ++inf_local) {
-            int inf = ((inf_local) * numProc + worldRank) % numDirection;
             for (int iband_local = 0; iband_local < numBandLocal; ++iband_local) {
+                int inf = ((inf_local) * numProc + worldRank) % numDirection;
                 int iband = iband_local * (ceil(double(numProc) / double(numDirection))) + worldRank / numDirection;
                 for (int icell = 0; icell < 2; ++icell) {
                     int ie = boundaryCell[ib][icell];
@@ -146,6 +146,7 @@ void Transient::solve(int Use_Backup, double error_temp_limit, double error_flux
 
             auto total_iter_start = chrono::high_resolution_clock::now();
             copy();
+#ifndef USE_GPU
             for (int inf_local = 0; inf_local < numDirectionLocal; inf_local++) {
                 for (int iband_local = 0; iband_local < numBandLocal; ++iband_local) {
                     auto get_gradient_start = chrono::high_resolution_clock::now();
@@ -190,10 +191,11 @@ void Transient::solve(int Use_Backup, double error_temp_limit, double error_flux
                     MPI_Allreduce(heatFluxXLocal, heatFluxXGlobal, numCell, MPI_DOUBLE, MPI_SUM, MPI_COMM_WORLD);
                     MPI_Allreduce(heatFluxYLocal, heatFluxYGlobal, numCell, MPI_DOUBLE, MPI_SUM, MPI_COMM_WORLD);
                     MPI_Allreduce(heatFluxZLocal, heatFluxZGlobal, numCell, MPI_DOUBLE, MPI_SUM, MPI_COMM_WORLD);
-
                 }
             }
-
+#else
+//            ttdr_iteration();
+#endif
             auto set_bound_start = chrono::high_resolution_clock::now();
             _set_bound_ee_1();
             auto set_bound_end = chrono::high_resolution_clock::now();
