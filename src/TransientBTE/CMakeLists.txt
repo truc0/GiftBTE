@@ -1,4 +1,5 @@
 if (USE_GPU)
+    set_source_files_properties(transient.h PROPERTIES LANGUAGE CUDA)
     set_source_files_properties(transient.cpp PROPERTIES LANGUAGE CUDA)
     set_source_files_properties(TransientSolver.cpp PROPERTIES LANGUAGE CUDA)
     add_library(TransientBTE transient_kernels.cu transient.cpp TransientSolver.cpp)

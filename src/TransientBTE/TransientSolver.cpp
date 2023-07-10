@@ -3,6 +3,7 @@
 //
 
 #include "TransientBTE/transient.h"
+#include "TransientBTE/transient_kernels.cuh"
 #include <algorithm>
 #include <iomanip>
 #include <chrono>
@@ -194,7 +195,9 @@ void Transient::solve(int Use_Backup, double error_temp_limit, double error_flux
                 }
             }
 #else
-//            ttdr_iteration();
+            copy_to_device(*this);
+            ttdr_iterate<<<numDirectionLocal, numBandLocal>>>(*this, nt);
+            copy_from_device(*this);
 #endif
             auto set_bound_start = chrono::high_resolution_clock::now();
             _set_bound_ee_1();

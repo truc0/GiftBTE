@@ -69,6 +69,13 @@ class Transient
             double *temperatureLocal;
             double *temperatureVertex;
             double *temperature1;
+#ifdef USE_GPU
+            int *d_matter;
+            double *d_eboundLocal;
+            double *d_ebound;
+            double *d_temperatureOld;
+            double *d_temperatureLocal;
+#endif
 
             double *totalEnergy;
             double *totalEnergyLocal;
@@ -89,7 +96,19 @@ class Transient
             double *gradientFaceZ;
             double *limit;
 
-            double **boundaryTempMacro;
+#ifdef USE_GPU
+            double *d_heatFluxXLocal;
+            double *d_heatFluxYLocal;
+            double *d_heatFluxZLocal;
+            double *d_totalEnergyLocal;
+            double *d_gradientX;
+            double *d_gradientY;
+            double *d_gradientZ;
+
+            double *d_limit;
+#endif
+
+    double **boundaryTempMacro;
 
 
 
@@ -136,6 +155,35 @@ class Transient
             int **boundaryCell;
             int **boundaryFace;
 
+#ifdef USE_GPU
+            double *d_elementFaceBound;
+            double *d_energyDensity; // 3D
+            double *d_elementVolume;
+            double *d_elementHeatSource;
+
+            double **d_elementNeighborList;
+            double ***d_CellMatrix;
+
+            double *d_elementFaceNormX;
+            double *d_elementFaceNormY;
+            double *d_elementFaceNormZ;
+
+            double *d_elementCenterX;
+            double *d_elementCenterY;
+            double *d_elementCenterZ;
+
+            double *d_elementFaceArea;
+
+            double *d_elementFaceCenterX;
+            double *d_elementFaceCenterY;
+            double *d_elementFaceCenterZ;
+
+            int *d_elementFaceNeighobr;
+
+            int **d_boundaryCell;
+            int **d_boundaryFace;
+#endif
+
             std::vector<std::vector<int>> boundaryNeighbors;
 
             //int *boundaryIndex;
@@ -158,20 +206,35 @@ class Transient
             double ***modeWeight;
             double *capacityBulk;
 
+#ifdef USE_GPU
+            double ***d_groupVelocityX;
+            double ***d_groupVelocityY;
+            double ***d_groupVelocityZ;
+            double ***d_relaxationTime;
+            double ***d_heatRatio;
+
+            double ***d_heatCapacity;
+            double ***d_latticeRatio;
+            double ***d_modeWeight;
+            double *d_capacityBulk;
+#endif
+
             double *directionX;
             double *directionY;
             double *directionZ;
 
 
             double *Re;
-
+#ifdef USE_GPU
+            double *d_Re;
+#endif
 
             Transient(BTEMesh *mesh, BTEBoundaryCondition *bcs, BTEBand *bands, BTEAngle *angles, int num_proc, int world_rank,double deltaT,double totalT,
                       int use_TDTR,double pulse_time,double repetition_frequency,double modulation_frequency,double xy_r);
 
             void _set_initial(int Use_Backup) const;
 
-             void _get_explicit_Re(int itime, int spatial_order, int Use_limiter,int iband_local, int inf_local,double deltaTime);
+            void _get_explicit_Re(int itime, int spatial_order, int Use_limiter,int iband_local, int inf_local,double deltaTime) const;
 
             void _get_bound_ee(int iband_local, int inf_local) const;
             void _set_bound_ee_1() const;
@@ -200,9 +263,5 @@ class Transient
             void solve_first_order(int Use_Backup, int Use_Limiter, double error_temp_limit, double error_flux_limit,double deltaT,double totalT);
 
             ~Transient();
-        };
-
-#ifdef USE_GPU
-//    __global__ void ttdr_iteration();
-#endif
+};
 #endif //STATICBTESOLVER_TRANSIENT_H
