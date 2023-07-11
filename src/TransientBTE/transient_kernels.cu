@@ -322,31 +322,22 @@ __device__ void _gpu_get_explicit_Re(const Transient& solver, int itime, int spa
             double dotProduct = (groupVelocityX[groupVelocityIdx] * elementFaceNormX[elementFaceIdx]
                                  + groupVelocityY[groupVelocityIdx] * elementFaceNormY[elementFaceIdx]
                                  + groupVelocityZ[groupVelocityIdx] * elementFaceNormZ[elementFaceIdx]);
-            double temp = elementFaceArea[jface + ie * 6] / elementVolume[ie] * dotProduct;           //
-            // TODO: combine the following if statements
-            if (dotProduct >= 0) {
-                const double ax = elementFaceCenterX[elementFaceIdx] - elementCenterX[ie];
-                const double ay = elementFaceCenterY[elementFaceIdx] - elementCenterY[ie];
-                const double az = elementFaceCenterZ[elementFaceIdx] - elementCenterZ[ie];
-                const double e = (energyDensity[iband_local * solver.numDirectionLocal * numCell + inf_local * numCell + ie] +
-                            (ax * gradientX[ie] + ay * gradientY[ie] + az * gradientZ[ie]) * limit[ie]);
-                Re[ie] += temp * e;
-            } else if (elementFaceBound[jface + ie * 6] == -1) {
-                const int neighborIdx = elementFaceNeighobr[elementFaceIdx];
-                const double ax = elementFaceCenterX[elementFaceIdx] - elementCenterX[neighborIdx];
-                const double ay = elementFaceCenterY[elementFaceIdx] - elementCenterY[neighborIdx];
-                const double az = elementFaceCenterZ[elementFaceIdx] - elementCenterZ[neighborIdx];
-                const double e =
-                        energyDensity[iband_local * solver.numDirectionLocal * numCell + inf_local * numCell +
-                                      neighborIdx] +
-                        (ax * gradientX[neighborIdx] + ay * gradientY[neighborIdx] + az * gradientZ[neighborIdx]) *
-                        limit[neighborIdx];
+            double temp = elementFaceArea[elementFaceIdx] / elementVolume[ie] * dotProduct;           //
+
+            if (dotProduct >= 0 || elementFaceBound[elementFaceIdx] == -1) {
+                const auto elementCenterIdx = dotProduct >= 0 ? ie : elementFaceNeighobr[elementFaceIdx];
+                const double ax = elementFaceCenterX[elementFaceIdx] - elementCenterX[elementCenterIdx];
+                const double ay = elementFaceCenterY[elementFaceIdx] - elementCenterY[elementCenterIdx];
+                const double az = elementFaceCenterZ[elementFaceIdx] - elementCenterZ[elementCenterIdx];
+                const double e = (energyDensity[iband_local * solver.numDirectionLocal * numCell + inf_local * numCell + elementCenterIdx] +
+                                  (ax * gradientX[elementCenterIdx] + ay * gradientY[elementCenterIdx] + az * gradientZ[elementCenterIdx]) * limit[elementCenterIdx]);
                 Re[ie] += temp * e;
             }
         }
 
         // equlibrium
-        Re[ie] -= temperatureOld[ie] * heatCapacity[matter[ie]][iband][inf] / relaxationTime[matter[ie]][iband][inf];
+        const auto idx = matter[ie] * numBand * numDirection + iband * numDirection + inf;
+        Re[ie] -= temperatureOld[ie] * heatCapacity[idx] / relaxationTime[idx];
 
         // TDTR_heatSource
         if (solver.use_TDTR == 1) {
@@ -398,9 +389,87 @@ __device__ void _gpu_get_explicit_Re(const Transient& solver, int itime, int spa
 
 __device__ void _gpu_get_bound_ee(const Transient& solver, int iband_local, int inf_local) {}
 
-__device__ void _gpu_recover_temperature(const Transient& solver, int iband, int inf_local) {}
+__device__ void _gpu_recover_temperature(const Transient& solver, int iband_local, int inf_local)
+{
+    const auto numCell = solver.numCell;
+    const auto numProc = solver.numProc;
+    const auto worldRank = solver.worldRank;
+    const auto numDirection = solver.numDirection;
+    const auto numDirectionLocal = solver.numDirectionLocal;
+    const auto numBand = solver.numBand;
 
-__device__ void _gpu_get_total_energy(const Transient& solver, int iband, int inf_local) {}
+    const auto matter = solver.d_matter;
+    const auto temperatureLocal = solver.d_temperatureLocal;
+    const auto latticeRatio = solver.d_latticeRatio;
+    const auto energyDensity = solver.d_energyDensity;
+    const auto modeWeight = solver.d_modeWeight;
+    const auto heatCapacity = solver.d_heatCapacity;
 
-__device__ void _gpu_get_heat_flux(const Transient& solver, int iband, int inf_local) {}
+    const int inf = ((inf_local) * numProc + worldRank) % numDirection;
+    const int iband = iband_local * (ceil(double(numProc) / double(numDirection))) + worldRank / numDirection;
+
+    for (int ie = 0; ie < numCell; ++ie) {
+        const auto mie = matter[ie];
+        const auto idx = mie * numBand * numDirection + iband * numDirection + inf;
+        temperatureLocal[ie] += latticeRatio[idx] * modeWeight[idx] / heatCapacity[idx]
+                * energyDensity[iband_local * numDirectionLocal * numCell + inf_local * numCell + ie];
+    }
+}
+
+__device__ void _gpu_get_total_energy(const Transient& solver, int iband_local, int inf_local)
+{
+    const auto numCell = solver.numCell;
+    const auto numProc = solver.numProc;
+    const auto worldRank = solver.worldRank;
+    const auto numDirection = solver.numDirection;
+    const auto numDirectionLocal = solver.numDirectionLocal;
+    const auto numBand = solver.numBand;
+
+    const auto matter = solver.d_matter;
+    const auto energyDensity = solver.d_energyDensity;
+    const auto modeWeight = solver.d_modeWeight;
+    const auto capacityBulk = solver.d_capacityBulk;
+    const auto totalEnergyLocal = solver.totalEnergyLocal;
+
+    int inf = ((inf_local) * numProc + worldRank) % numDirection;
+    int iband = iband_local * (ceil(double(numProc) / double(numDirection))) + worldRank / numDirection;
+
+    for (int ie = 0; ie < numCell; ++ie) {
+        const auto mie = matter[ie];
+        totalEnergyLocal[ie] += energyDensity[iband_local * numDirectionLocal * numCell + inf_local * numCell + ie]
+                * modeWeight[mie * numBand * numDirection + iband * numDirection + inf]
+                / capacityBulk[mie];
+    }
+}
+
+__device__ void _gpu_get_heat_flux(const Transient& solver, int iband_local, int inf_local)
+{
+    const auto numBand = solver.numBand;
+    const auto numCell = solver.numCell;
+    const auto numProc = solver.numProc;
+    const auto worldRank = solver.worldRank;
+    const auto numDirection = solver.numDirection;
+    const auto numDirectionLocal = solver.numDirectionLocal;
+
+    const auto matter = solver.d_matter;
+    const auto heatFluxXLocal = solver.d_heatFluxXLocal;
+    const auto heatFluxYLocal = solver.d_heatFluxYLocal;
+    const auto heatFluxZLocal = solver.d_heatFluxZLocal;
+    const auto groupVelocityX = solver.d_groupVelocityX;
+    const auto groupVelocityY = solver.d_groupVelocityY;
+    const auto groupVelocityZ = solver.d_groupVelocityZ;
+    const auto modeWeight = solver.d_modeWeight;
+    const auto energyDensity = solver.d_energyDensity;
+
+    int inf = ((inf_local) * numProc + worldRank) % numDirection;
+    int iband = iband_local * (ceil(double(numProc) / double(numDirection))) + worldRank / numDirection;
+
+    for (int ie = 0; ie < numCell; ++ie) {
+        const auto idx = matter[ie] * numBand * numDirection + iband * numDirection + inf;
+        const auto energyDensityIdx = iband_local * numDirectionLocal * numCell + inf_local * numCell + ie;
+        heatFluxXLocal[ie] += groupVelocityX[idx] * modeWeight[idx] * energyDensity[energyDensityIdx];
+        heatFluxYLocal[ie] += groupVelocityY[idx] * modeWeight[idx] * energyDensity[energyDensityIdx];
+        heatFluxZLocal[ie] += groupVelocityZ[idx] * modeWeight[idx] * energyDensity[energyDensityIdx];
+    }
+}
 
