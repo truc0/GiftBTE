@@ -156,12 +156,13 @@ class Transient
             int **boundaryFace;
 
 #ifdef USE_GPU
+            double *d_elementFaceSize;
             double *d_elementFaceBound;
             double *d_energyDensity; // 3D
             double *d_elementVolume;
             double *d_elementHeatSource;
 
-            double **d_elementNeighborList;
+            double *d_elementNeighborList;
             double ***d_CellMatrix;
 
             double *d_elementFaceNormX;
@@ -180,8 +181,8 @@ class Transient
 
             int *d_elementFaceNeighobr;
 
-            int **d_boundaryCell;
-            int **d_boundaryFace;
+            int *d_boundaryCell;
+            int *d_boundaryFace;
 #endif
 
             std::vector<std::vector<int>> boundaryNeighbors;
@@ -207,15 +208,15 @@ class Transient
             double *capacityBulk;
 
 #ifdef USE_GPU
-            double ***d_groupVelocityX;
-            double ***d_groupVelocityY;
-            double ***d_groupVelocityZ;
-            double ***d_relaxationTime;
-            double ***d_heatRatio;
+            double *d_groupVelocityX;
+            double *d_groupVelocityY;
+            double *d_groupVelocityZ;
+            double *d_relaxationTime;
+            double *d_heatRatio;
 
-            double ***d_heatCapacity;
-            double ***d_latticeRatio;
-            double ***d_modeWeight;
+            double *d_heatCapacity;
+            double *d_latticeRatio;
+            double *d_modeWeight;
             double *d_capacityBulk;
 #endif
 
