@@ -12,15 +12,13 @@
 #include <chrono>
 
 
-#ifdef USE_GPU
-#include "StaticBTESolver/GPU_kernel.h"
-#endif
-
 #ifdef USE_TIME
 #include <chrono>
 #endif
 
-#ifdef USE_GPU
+//#ifdef USE_GPU
+#if 0
+
 #define VIENNACL_WITH_CUDA 1
 #if SIZE_MAX == UCHAR_MAX
 #define my_MPI_SIZE_T MPI_UNSIGNED_CHAR
@@ -33,6 +31,7 @@
 #elif SIZE_MAX == ULLONG_MAX
 #define my_MPI_SIZE_T MPI_UNSIGNED_LONG_LONG
 #endif
+
 #include "viennacl/scalar.hpp"
 #include "viennacl/vector.hpp"
 #include "viennacl/compressed_matrix.hpp"
@@ -45,7 +44,8 @@
 #include "viennacl/tools/timer.hpp"
 #include <fstream>
 viennacl::linalg::chow_patel_tag chow_patel_ilu_config;
-#endif
+
+#endif // USE_GPU
 
 using namespace std;
 
@@ -214,13 +214,8 @@ StaticBTESynthetic::~StaticBTESynthetic()
     delete [] directionZ;
 
     //cout << "~StaticBTESynthetic is activated !!" << endl;
-#ifdef USE_GPU
-
-#else
-
-#endif
-
 }
+
 StaticBTESynthetic::StaticBTESynthetic(BTEMesh *mesh, BTEBoundaryCondition *bcs, BTEBand *bands, BTEAngle *angles, int num_proc, int world_rank)
 {
     this->numProc = num_proc;

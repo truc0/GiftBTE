@@ -260,15 +260,16 @@ vec Get_gradient_2D(std::vector<std::vector<double>> &J, std::vector<double> &d)
 vec Get_gradient_3D(std::vector<std::vector<double>> &J, std::vector<double> &d);
 void Get_inverse_2D(double **Jfin, std::vector<std::vector<double>> &J);
 void Get_inverse_3D(double **Jfin,std::vector<std::vector<double>> &J);
+
 #ifndef USE_GPU
 double *_solve_matrix(int *csrRowPtr, int *csrColInd, double *csrVal, std::vector<double> &Re, int N_cell);
 double *_solve_matrix_1(int *csrRowPtr, int *csrColInd, double *csrVal, std::vector<double> &Re, int N_cell);
 double *_solve_matrix(int *RowPtr, int *ColInd, double *Val, double *Re, int N_cell);
 double *_solve_matrix_hypre(int *csrRowPtr, int *csrColInd, double *csrVal, std::vector<double> &Re, int N_cell, int world_rank, int num_proc);
 double *_solve_matrix_hypre(int *RowPtr, int *ColInd, double *Val, double *Re, int N_cell, int world_rank, int num_proc);
-bool ishave(int a,const std::vector<int>& array);
-
 #endif
+
+bool ishave(int a,const std::vector<int>& array);
 
 #endif 
 // STATICBTESOLVER_UTILITY_H

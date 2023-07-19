@@ -337,14 +337,11 @@ int main(int argc, char **argv) {
   }
   MPI_Barrier(MPI_COMM_WORLD);
 
-#ifndef USE_GPU
-
   SolutionAll solutionAll(distributeMesh, bcs, bands, angles, num_proc,
                           world_rank);
   solutionAll._set_initial(distributeMesh, bands, angles);
   if (State != "Transient") {
     if (world_rank == 0) {
-      // cout<<endl;
       cout << "Begin Fourier Solver" << endl;
     }
     solutionAll._Fourier_Solver(distributeMesh, bcs, bands, num_proc,
@@ -376,12 +373,7 @@ int main(int argc, char **argv) {
 
   // TransientFourier fourierTransient(mesh, bcs, bands,num_proc, world_rank);
   // fourierTransient._solve();
-#else
-  StaticBTESolver solver(mesh, bcs, bands, angles, num_proc, world_rank,
-                         Num_Theta, Num_Phi);
-  solver.solve(Use_Backup, Num_Max_Iter, Use_Sythetic, Use_Limiter,
-               error_temp_limit, error_flux_limit);
-#endif
+
   if (world_rank == 0) {
     cout << endl
          << "********************************" << endl
