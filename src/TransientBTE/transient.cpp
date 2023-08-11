@@ -7,6 +7,11 @@
 #include <chrono>
 #include <iomanip>
 
+#ifdef USE_GPU
+#include "TransientBTE/cuda_kernels.cuh"
+#include "utility/cuda_utility.cuh"
+#endif
+
 Transient::~Transient() {
 
     delete[] numCellLocalList;
@@ -794,29 +799,94 @@ void Transient::_recover_temperature(int iband_local, int inf_local) const {
     int inf = ((inf_local) * numProc + worldRank) % numDirection;
     int iband = iband_local * (ceil(double(numProc) / double(numDirection))) +
                 worldRank / numDirection;
+#ifndef USE_GPU
     for (int ie = 0; ie < numCell; ++ie) {
         temperatureLocal[ie] += latticeRatio[matter[ie]][iband][inf] *
                                 energyDensity[iband_local][inf_local][ie] *
                                 modeWeight[matter[ie]][iband][inf] /
                                 heatCapacity[matter[ie]][iband][inf];
     }
+#else
+    double *d_temperature, *d_latticeRatio, *d_energyDensity, *d_modeWeight,
+            *d_heatCapacity;
+
+    // setup
+    MIGRATE_TO_DEVICE_1D(d_temperature, temperatureLocal, numCell, double);
+    MIGRATE_TO_DEVICE_1D(d_energyDensity, energyDensity[iband_local][inf_local], numCell, double);
+
+    // migrate d_latticeRatio, d_modeWeight, d_heatCapacity
+    double *h_latticeRatio = new double[numCell];
+    double *h_modeWeight = new double[numCell];
+    double *h_heatCapacity = new double[numCell];
+
+    #pragma omp parallel for
+    for (int ie = 0; ie < numCell; ++ie) {
+        h_latticeRatio[ie] = latticeRatio[matter[ie]][iband][inf];
+        h_modeWeight[ie] = modeWeight[matter[ie]][iband][inf];
+        h_heatCapacity[ie] = heatCapacity[matter[ie]][iband][inf];
+    }
+    MIGRATE_TO_DEVICE_1D(d_latticeRatio, h_latticeRatio, numCell, double);
+    MIGRATE_TO_DEVICE_1D(d_modeWeight, h_modeWeight, numCell, double);
+    MIGRATE_TO_DEVICE_1D(d_heatCapacity, h_heatCapacity, numCell, double);
+
+    calcRecoverTemperature<<<1, numCell>>>(d_temperature, d_latticeRatio, d_energyDensity, d_modeWeight, d_heatCapacity);
+
+    // cleanup
+    MIGRATE_TO_HOST_1D(temperatureLocal, d_temperature, numCell, double);
+    cudaFree(d_energyDensity);
+    cudaFree(d_latticeRatio);
+    cudaFree(d_modeWeight);
+    cudaFree(d_heatCapacity);
+    delete[] h_latticeRatio;
+    delete[] h_modeWeight;
+    delete[] h_heatCapacity;
+#endif
 }
 
 void Transient::_get_total_energy(int iband_local, int inf_local) const {
     int inf = ((inf_local) * numProc + worldRank) % numDirection;
     int iband = iband_local * (ceil(double(numProc) / double(numDirection))) +
                 worldRank / numDirection;
+#ifndef USE_GPU
     for (int ie = 0; ie < numCell; ++ie) {
         totalEnergyLocal[ie] += energyDensity[iband_local][inf_local][ie] *
                                 modeWeight[matter[ie]][iband][inf] /
                                 capacityBulk[matter[ie]];
     }
+#else
+    double *d_totalEnergy, *d_energyDensity, *d_modeWeight, *d_capacityBulk;
+    double *h_modeWeight = new double[numCell];
+    double *h_capacityBulk = new double[numCell];
+
+    // setup
+    MIGRATE_TO_DEVICE_1D(d_totalEnergy, totalEnergyLocal, numCell, double);
+    MIGRATE_TO_DEVICE_1D(d_energyDensity, energyDensity[iband_local][inf_local], numCell, double);
+
+    #pragma omp parallel for
+    for (int ie = 0; ie < numCell; ++ie) {
+        h_modeWeight[ie] = modeWeight[matter[ie]][iband][inf];
+        h_capacityBulk[ie] = capacityBulk[matter[ie]];
+    }
+    MIGRATE_TO_DEVICE_1D(d_modeWeight, h_modeWeight, numCell, double);
+    MIGRATE_TO_DEVICE_1D(d_capacityBulk, h_capacityBulk, numCell, double);
+
+    calcGetTotalEnergy<<<1, numCell>>>(d_totalEnergy, d_energyDensity, d_modeWeight, d_capacityBulk);
+
+    // clean up
+    MIGRATE_TO_HOST_1D(totalEnergyLocal, d_totalEnergy, numCell, double);
+    cudaFree(d_energyDensity);
+    cudaFree(d_modeWeight);
+    cudaFree(d_capacityBulk);
+    delete[] h_modeWeight;
+    delete[] h_capacityBulk;
+#endif
 }
 
 void Transient::_get_heat_flux(int iband_local, int inf_local) const {
     int inf = ((inf_local) * numProc + worldRank) % numDirection;
     int iband = iband_local * (ceil(double(numProc) / double(numDirection))) +
                 worldRank / numDirection;
+#ifndef USE_GPU
     for (int ie = 0; ie < numCell; ++ie) {
         heatFluxXLocal[ie] += groupVelocityX[matter[ie]][iband][inf] *
                               modeWeight[matter[ie]][iband][inf] *
@@ -828,6 +898,37 @@ void Transient::_get_heat_flux(int iband_local, int inf_local) const {
                               modeWeight[matter[ie]][iband][inf] *
                               energyDensity[iband_local][inf_local][ie];
     }
+#else
+    double *d_heatFluxXLocal, *d_heatFluxYLocal, *d_heatFluxZLocal;
+    double *d_groupVelocityX, *d_groupVelocityY, *d_groupVelocityZ;
+    double *d_energyDensity, *d_modeWeight;
+
+    // setup
+    MIGRATE_TO_DEVICE_1D(d_heatFluxXLocal, heatFluxXLocal, numCell, double);
+    MIGRATE_TO_DEVICE_1D(d_heatFluxYLocal, heatFluxYLocal, numCell, double);
+    MIGRATE_TO_DEVICE_1D(d_heatFluxZLocal, heatFluxZLocal, numCell, double);
+    MIGRATE_TO_DEVICE_1D(d_energyDensity, energyDensity[iband_local][inf_local], numCell, double);
+
+    // migrate groupVelocity and modeWeight
+    double *h_groupVelocityX = new double[numCell];
+    double *h_groupVelocityY = new double[numCell];
+    double *h_groupVelocityZ = new double[numCell];
+    double *h_modeWeight = new double[numCell];
+
+    calcGetHeatFlux<<<1, numCell>>>(d_heatFluxXLocal, d_groupVelocityX, d_energyDensity, d_modeWeight);
+    calcGetHeatFlux<<<1, numCell>>>(d_heatFluxYLocal, d_groupVelocityY, d_energyDensity, d_modeWeight);
+    calcGetHeatFlux<<<1, numCell>>>(d_heatFluxZLocal, d_groupVelocityZ, d_energyDensity, d_modeWeight);
+
+    // clean up
+    MIGRATE_TO_HOST_1D(heatFluxXLocal, d_heatFluxXLocal, numCell, double);
+    MIGRATE_TO_HOST_1D(heatFluxYLocal, d_heatFluxYLocal, numCell, double);
+    MIGRATE_TO_HOST_1D(heatFluxZLocal, d_heatFluxZLocal, numCell, double);
+    cudaFree(d_energyDensity);
+    cudaFree(d_modeWeight);
+    cudaFree(d_groupVelocityX);
+    cudaFree(d_groupVelocityY);
+    cudaFree(d_groupVelocityZ);
+#endif
 }
 
 bool Transient::_get_magin_check_error(int nt, double error_temp_limit,

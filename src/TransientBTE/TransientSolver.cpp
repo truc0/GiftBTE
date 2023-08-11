@@ -330,6 +330,7 @@ void Transient::solve(int Use_Backup, double error_temp_limit,
     }
     if (use_TDTR == 0) {
         ofstream outputT("TTG.dat");
+        std::cout << "IMPT::numCell " << numCell << std::endl;
         for (int nt = 0; nt < Num_Max_Iter; ++nt) {
             total_iter_time = chrono::microseconds(0);
             get_gradient_time = chrono::microseconds(0);
