@@ -2,6 +2,11 @@
 // Created by yuehu on 2023/5/21.
 //
 
+#ifdef USE_GPU
+#include "TransientBTE/cuda_kernels.cuh"
+#include "utility/cuda_utility.cuh"
+#endif
+
 #include "TransientBTE/transient.h"
 #include <algorithm>
 #include <chrono>
@@ -356,6 +361,7 @@ void Transient::solve(int Use_Backup, double error_temp_limit,
 
                     auto solve_start = chrono::high_resolution_clock::now();
 
+#ifndef USE_GPU
                     for (int icell = 0; icell < numCell; ++icell) {
                         // if(Re[icell]!=0)
                         // cout<<Re[icell]<<endl;
@@ -368,6 +374,36 @@ void Transient::solve(int Use_Backup, double error_temp_limit,
                                 (1 - deltaT / relaxationTime[matter[icell]][iband][inf]) -
                                 deltaT * Re[icell];
                     }
+#else
+                    const int inf = ((inf_local) * numProc + worldRank) % numDirection;
+                    const int iband =
+                            iband_local * (ceil(double(numProc) / double(numDirection))) +
+                            worldRank / numDirection;
+                    double *d_energyDensity;
+                    double *d_Re;
+                    // h_relaxationTime is a pointer in host for transferring the data
+                    double *d_relaxationTime, *h_relaxationTime;
+
+                    MIGRATE_TO_DEVICE_1D(d_energyDensity, energyDensity[iband_local][inf_local], numCell, double);
+                    MIGRATE_TO_DEVICE_1D(d_Re, Re, numCell, double);
+
+                    h_relaxationTime = new double[numCell];
+                    cudaMalloc(&d_relaxationTime, numCell * sizeof(double));
+                    for (int iCell = 0; iCell < numCell; ++iCell) {
+                        h_relaxationTime[iCell] = relaxationTime[matter[iCell]][iband][inf];
+                    }
+                    cudaMemcpy(d_relaxationTime, h_relaxationTime, numCell * sizeof(double), cudaMemcpyHostToDevice);
+
+                    calcEnergyDensity<<<1, numCell>>>(deltaT, d_energyDensity, d_Re, d_relaxationTime);
+
+                    // only energyDensity is changed in the device
+                    MIGRATE_TO_HOST_1D(energyDensity[iband_local][inf_local], d_energyDensity, numCell, double);
+                    // free others
+                    delete[] h_relaxationTime;
+                    cudaFree(d_Re);
+                    cudaFree(d_relaxationTime);
+#endif
+
                     auto solve_end = chrono::high_resolution_clock::now();
                     solver1_time += chrono::duration_cast<chrono::microseconds>(
                             solve_end - solve_start);

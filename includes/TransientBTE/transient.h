@@ -165,6 +165,11 @@ class Transient
 
             double *Re;
 
+#ifdef USE_GPU
+//            int *d_matter;
+//            double *d_energyDensity;
+#endif
+
 
             Transient(BTEMesh *mesh, BTEBoundaryCondition *bcs, BTEBand *bands, BTEAngle *angles, int num_proc, int world_rank,double deltaT,double totalT,
                       int use_TDTR,double pulse_time,double repetition_frequency,double modulation_frequency,double xy_r);
