@@ -819,7 +819,6 @@ void Transient::_recover_temperature(int iband_local, int inf_local) const {
     double *h_modeWeight = new double[numCell];
     double *h_heatCapacity = new double[numCell];
 
-    #pragma omp parallel for
     for (int ie = 0; ie < numCell; ++ie) {
         h_latticeRatio[ie] = latticeRatio[matter[ie]][iband][inf];
         h_modeWeight[ie] = modeWeight[matter[ie]][iband][inf];
@@ -915,9 +914,22 @@ void Transient::_get_heat_flux(int iband_local, int inf_local) const {
     double *h_groupVelocityZ = new double[numCell];
     double *h_modeWeight = new double[numCell];
 
-    calcGetHeatFlux<<<1, numCell>>>(d_heatFluxXLocal, d_groupVelocityX, d_energyDensity, d_modeWeight);
-    calcGetHeatFlux<<<1, numCell>>>(d_heatFluxYLocal, d_groupVelocityY, d_energyDensity, d_modeWeight);
-    calcGetHeatFlux<<<1, numCell>>>(d_heatFluxZLocal, d_groupVelocityZ, d_energyDensity, d_modeWeight);
+    // do migration
+    for (int ie = 0; ie < numCell; ++ie) {
+        h_groupVelocityX[ie] = groupVelocityX[matter[ie]][iband][inf];
+        h_groupVelocityY[ie] = groupVelocityY[matter[ie]][iband][inf];
+        h_groupVelocityZ[ie] = groupVelocityZ[matter[ie]][iband][inf];
+        h_modeWeight[ie] = modeWeight[matter[ie]][iband][inf];
+    }
+
+    MIGRATE_TO_DEVICE_1D(d_groupVelocityX, h_groupVelocityX, numCell, double);
+    MIGRATE_TO_DEVICE_1D(d_groupVelocityY, h_groupVelocityY, numCell, double);
+    MIGRATE_TO_DEVICE_1D(d_groupVelocityZ, h_groupVelocityZ, numCell, double);
+    MIGRATE_TO_DEVICE_1D(d_modeWeight, h_modeWeight, numCell, double);
+
+    calcGetHeatFlux<<<1, numCell>>>(d_heatFluxXLocal, d_groupVelocityX, d_modeWeight, d_energyDensity);
+    calcGetHeatFlux<<<1, numCell>>>(d_heatFluxYLocal, d_groupVelocityY, d_modeWeight, d_energyDensity);
+    calcGetHeatFlux<<<1, numCell>>>(d_heatFluxZLocal, d_groupVelocityZ, d_modeWeight, d_energyDensity);
 
     // clean up
     MIGRATE_TO_HOST_1D(heatFluxXLocal, d_heatFluxXLocal, numCell, double);
@@ -928,6 +940,10 @@ void Transient::_get_heat_flux(int iband_local, int inf_local) const {
     cudaFree(d_groupVelocityX);
     cudaFree(d_groupVelocityY);
     cudaFree(d_groupVelocityZ);
+    delete[] h_groupVelocityX;
+    delete[] h_groupVelocityY;
+    delete[] h_groupVelocityZ;
+    delete[] h_modeWeight;
 #endif
 }
 
