@@ -375,35 +375,6 @@ void Transient::solve(int Use_Backup, double error_temp_limit,
                                 (1 - deltaT / relaxationTime[matter[icell]][iband][inf]) -
                                 deltaT * Re[icell];
                     }
-#else
-                    const int inf = ((inf_local) * numProc + worldRank) % numDirection;
-                    const int iband =
-                            iband_local * (ceil(double(numProc) / double(numDirection))) +
-                            worldRank / numDirection;
-                    double *d_energyDensity;
-                    double *d_Re;
-                    // h_relaxationTime is a pointer in host for transferring the data
-                    double *d_relaxationTime, *h_relaxationTime;
-
-                    MIGRATE_TO_DEVICE_1D(d_energyDensity, energyDensity[iband_local][inf_local], numCell, double);
-                    MIGRATE_TO_DEVICE_1D(d_Re, Re, numCell, double);
-
-                    h_relaxationTime = new double[numCell];
-                    cudaMalloc(&d_relaxationTime, numCell * sizeof(double));
-                    for (int iCell = 0; iCell < numCell; ++iCell) {
-                        h_relaxationTime[iCell] = relaxationTime[matter[iCell]][iband][inf];
-                    }
-                    cudaMemcpy(d_relaxationTime, h_relaxationTime, numCell * sizeof(double), cudaMemcpyHostToDevice);
-
-                    calcEnergyDensity<<<1, numCell>>>(deltaT, d_energyDensity, d_Re, d_relaxationTime);
-
-                    // only energyDensity is changed in the device
-                    MIGRATE_TO_HOST_1D(energyDensity[iband_local][inf_local], d_energyDensity, numCell, double);
-                    // free others
-                    delete[] h_relaxationTime;
-                    cudaFree(d_Re);
-                    cudaFree(d_relaxationTime);
-#endif
 
                     auto solve_end = chrono::high_resolution_clock::now();
                     solver1_time += chrono::duration_cast<chrono::microseconds>(
@@ -418,6 +389,132 @@ void Transient::solve(int Use_Backup, double error_temp_limit,
                     _recover_temperature(iband_local, inf_local);
                     _get_total_energy(iband_local, inf_local);
                     _get_heat_flux(iband_local, inf_local);
+#else
+                    const int inf = ((inf_local) * numProc + worldRank) % numDirection;
+                    const int iband =
+                            iband_local * (ceil(double(numProc) / double(numDirection))) +
+                            worldRank / numDirection;
+
+                    /* Block 1 START */
+                    double *d_energyDensity;
+                    double *d_Re;
+                    // h_relaxationTime is a pointer in host for transferring the data
+                    double *d_relaxationTime, *h_relaxationTime;
+
+                    MIGRATE_TO_DEVICE_1D(d_energyDensity, energyDensity[iband_local][inf_local], numCell, double);
+                    MIGRATE_TO_DEVICE_1D(d_Re, Re, numCell, double);
+
+                    h_relaxationTime = new double[numCell];
+                    for (int iCell = 0; iCell < numCell; ++iCell) {
+                        h_relaxationTime[iCell] = relaxationTime[matter[iCell]][iband][inf];
+                    }
+                    MIGRATE_TO_DEVICE_1D(d_relaxationTime, h_relaxationTime, numCell, double);
+
+                    calcEnergyDensity<<<1, numCell>>>(deltaT, d_energyDensity, d_Re, d_relaxationTime);
+                    /* Block 1 END */
+
+                    /* _recover_temperature START */
+
+                    double *d_temperature, *d_latticeRatio, *d_modeWeight, *d_heatCapacity;
+
+                    // setup
+                    MIGRATE_TO_DEVICE_1D(d_temperature, temperatureLocal, numCell, double);
+
+                    // migrate d_latticeRatio, d_modeWeight, d_heatCapacity
+                    double *h_latticeRatio = new double[numCell];
+                    double *h_modeWeight = new double[numCell];
+                    double *h_heatCapacity = new double[numCell];
+
+                    // _recover_temperature(iband_local, inf_local);
+                    for (int ie = 0; ie < numCell; ++ie) {
+                        h_latticeRatio[ie] = latticeRatio[matter[ie]][iband][inf];
+                        h_modeWeight[ie] = modeWeight[matter[ie]][iband][inf];
+                        h_heatCapacity[ie] = heatCapacity[matter[ie]][iband][inf];
+                    }
+                    MIGRATE_TO_DEVICE_1D(d_latticeRatio, h_latticeRatio, numCell, double);
+                    MIGRATE_TO_DEVICE_1D(d_modeWeight, h_modeWeight, numCell, double);
+                    MIGRATE_TO_DEVICE_1D(d_heatCapacity, h_heatCapacity, numCell, double);
+
+                    calcRecoverTemperature<<<1, numCell>>>(d_temperature, d_latticeRatio, d_energyDensity, d_modeWeight, d_heatCapacity);
+
+                    /* _recover_temperature END */
+
+                    /* _get_total_energy START */
+                    double *d_totalEnergy, *d_capacityBulk;
+                    double *h_capacityBulk = new double[numCell];
+
+                    // setup
+                    MIGRATE_TO_DEVICE_1D(d_totalEnergy, totalEnergyLocal, numCell, double);
+
+                    for (int ie = 0; ie < numCell; ++ie) {
+                        h_capacityBulk[ie] = capacityBulk[matter[ie]];
+                    }
+                    MIGRATE_TO_DEVICE_1D(d_capacityBulk, h_capacityBulk, numCell, double);
+
+                    calcGetTotalEnergy<<<1, numCell>>>(d_totalEnergy, d_energyDensity, d_modeWeight, d_capacityBulk);
+                    /* _get_total_energy END */
+
+                    /* _get_heat_flux START */
+                    double *d_heatFluxXLocal, *d_heatFluxYLocal, *d_heatFluxZLocal;
+                    double *d_groupVelocityX, *d_groupVelocityY, *d_groupVelocityZ;
+
+                    // setup
+                    MIGRATE_TO_DEVICE_1D(d_heatFluxXLocal, heatFluxXLocal, numCell, double);
+                    MIGRATE_TO_DEVICE_1D(d_heatFluxYLocal, heatFluxYLocal, numCell, double);
+                    MIGRATE_TO_DEVICE_1D(d_heatFluxZLocal, heatFluxZLocal, numCell, double);
+
+                    // migrate groupVelocity and modeWeight
+                    double *h_groupVelocityX = new double[numCell];
+                    double *h_groupVelocityY = new double[numCell];
+                    double *h_groupVelocityZ = new double[numCell];
+
+                    // do migration
+                    for (int ie = 0; ie < numCell; ++ie) {
+                        h_groupVelocityX[ie] = groupVelocityX[matter[ie]][iband][inf];
+                        h_groupVelocityY[ie] = groupVelocityY[matter[ie]][iband][inf];
+                        h_groupVelocityZ[ie] = groupVelocityZ[matter[ie]][iband][inf];
+                    }
+
+                    MIGRATE_TO_DEVICE_1D(d_groupVelocityX, h_groupVelocityX, numCell, double);
+                    MIGRATE_TO_DEVICE_1D(d_groupVelocityY, h_groupVelocityY, numCell, double);
+                    MIGRATE_TO_DEVICE_1D(d_groupVelocityZ, h_groupVelocityZ, numCell, double);
+
+                    calcGetHeatFlux<<<1, numCell>>>(d_heatFluxXLocal, d_groupVelocityX, d_modeWeight, d_energyDensity);
+                    calcGetHeatFlux<<<1, numCell>>>(d_heatFluxYLocal, d_groupVelocityY, d_modeWeight, d_energyDensity);
+                    calcGetHeatFlux<<<1, numCell>>>(d_heatFluxZLocal, d_groupVelocityZ, d_modeWeight, d_energyDensity);
+
+                    // clean up
+                    MIGRATE_TO_HOST_1D(heatFluxXLocal, d_heatFluxXLocal, numCell, double);
+                    MIGRATE_TO_HOST_1D(heatFluxYLocal, d_heatFluxYLocal, numCell, double);
+                    MIGRATE_TO_HOST_1D(heatFluxZLocal, d_heatFluxZLocal, numCell, double);
+                    cudaFree(d_groupVelocityX);
+                    cudaFree(d_groupVelocityY);
+                    cudaFree(d_groupVelocityZ);
+                    delete[] h_groupVelocityX;
+                    delete[] h_groupVelocityY;
+                    delete[] h_groupVelocityZ;
+                    /* _get_heat_flux END */
+
+                    // cleanup for get total energy
+                    MIGRATE_TO_HOST_1D(totalEnergyLocal, d_totalEnergy, numCell, double);
+                    cudaFree(d_capacityBulk);
+                    delete[] h_capacityBulk;
+
+                    // cleanup for recover temperature
+                    MIGRATE_TO_HOST_1D(temperatureLocal, d_temperature, numCell, double);
+                    cudaFree(d_latticeRatio);
+                    cudaFree(d_modeWeight);
+                    cudaFree(d_heatCapacity);
+                    delete[] h_latticeRatio;
+                    delete[] h_modeWeight;
+                    delete[] h_heatCapacity;
+
+                    // cleanup for Block 1
+                    MIGRATE_TO_HOST_1D(energyDensity[iband_local][inf_local], d_energyDensity, numCell, double);
+                    delete[] h_relaxationTime;
+                    cudaFree(d_Re);
+                    cudaFree(d_relaxationTime);
+#endif
 
                     MPI_Allreduce(totalEnergyLocal, totalEnergy, numCell, MPI_DOUBLE,
                                   MPI_SUM, MPI_COMM_WORLD);
