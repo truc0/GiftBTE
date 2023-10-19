@@ -198,3 +198,69 @@ calcGetGradientLargerUseLimit(int magic, double *d_limit, const double *d_ebound
         }
     }
 }
+
+
+__global__ void
+calcGetExplicitRe(int use_TDTR, double deltaTime, const int *d_elementFaceSize, double repetition_frequency,
+                  double modulation_frequency, double pulse_time, double itime, double *d_Re,
+                  const double *d_groupVelocityX, const double *d_groupVelocityY, const double *d_groupVelocityZ,
+                  const double *d_elementFaceNormX, const double *d_elementFaceNormY, const double *d_elementFaceNormZ,
+                  const double *d_elementFaceArea, const double *d_elementVolume, const double *d_elementFaceCenterX,
+                  const double *d_elementFaceCenterY, const double *d_elementFaceCenterZ,
+                  const double *d_elementCenterX, const double *d_elementCenterY, const double *d_elementCenterZ,
+                  const double *d_energyDensity, const double *d_gradientX, const double *d_gradientY,
+                  const double *d_gradientZ, const double *d_limit, const int *d_elementFaceBound,
+                  const int *d_elementFaceNeighbor, const double *d_elementHeatSource, const double *d_heatRatio,
+                  const double *d_heatCapacity, const double *d_relaxationTime, const double *d_temperatureOld) {
+    const auto ie = threadIdx.x;
+    for (int jface = 0; jface < d_elementFaceSize[ie]; ++jface) {
+        double dotproduct = (d_groupVelocityX[ie] *
+                             d_elementFaceNormX[jface + ie * 6] +
+                             d_groupVelocityY[ie] *
+                             d_elementFaceNormY[jface + ie * 6] +
+                             d_groupVelocityZ[ie] *
+                             d_elementFaceNormZ[jface + ie * 6]);
+        double temp = d_elementFaceArea[jface + ie * 6] / d_elementVolume[ie] * dotproduct; //
+        if (dotproduct >= 0) {
+            double ax = d_elementFaceCenterX[jface + ie * 6] - d_elementCenterX[ie];
+            double ay = d_elementFaceCenterY[jface + ie * 6] - d_elementCenterY[ie];
+            double az = d_elementFaceCenterZ[jface + ie * 6] - d_elementCenterZ[ie];
+            double e =
+                    (d_energyDensity[ie] +
+                     (ax * d_gradientX[ie] + ay * d_gradientY[ie] + az * d_gradientZ[ie]) *
+                     d_limit[ie]);
+            d_Re[ie] += temp * e;
+        } else if (d_elementFaceBound[jface + ie * 6] == -1) {
+            int neiindex = d_elementFaceNeighbor[jface + ie * 6];
+            double ax = d_elementFaceCenterX[jface + ie * 6] - d_elementCenterX[neiindex];
+            double ay = d_elementFaceCenterY[jface + ie * 6] - d_elementCenterY[neiindex];
+            double az = d_elementFaceCenterZ[jface + ie * 6] - d_elementCenterZ[neiindex];
+            double e = (d_energyDensity[neiindex] +
+                        (ax * d_gradientX[neiindex] + ay * d_gradientY[neiindex] + az * d_gradientZ[neiindex]) *
+                        d_limit[neiindex]);
+            d_Re[ie] += temp * e;
+        }
+    }
+    // equlibrium
+    d_Re[ie] -= d_temperatureOld[ie] * d_heatCapacity[ie] / d_relaxationTime[ie];
+    // TDTR_heatsource
+    if (use_TDTR == 1) {
+        double heatindex = 0;
+        int times = pulse_time / deltaTime;
+        int new_itime = itime / times;
+        int tt = 1.0 / repetition_frequency * 1e-6 / deltaTime;
+        int numheat = (new_itime) / tt;
+        int checkheat = (new_itime) - numheat * tt;
+        double interg = 1.0;
+        double TT = 1.0 / (tt * (repetition_frequency / modulation_frequency) *
+                           deltaTime);
+        if (checkheat > 1) {
+            heatindex = 0;
+        } else {
+            interg = interg + (double) (new_itime);
+            heatindex = sin(interg * deltaTime * 2 * PI * TT) + 1;
+        }
+        double h = heatindex * d_heatRatio[ie] * d_elementHeatSource[ie];
+        d_Re[ie] -= h;
+    }
+}
