@@ -849,45 +849,17 @@ void Transient::_get_total_energy(int iband_local, int inf_local) const {
     int inf = ((inf_local) * numProc + worldRank) % numDirection;
     int iband = iband_local * (ceil(double(numProc) / double(numDirection))) +
                 worldRank / numDirection;
-#ifndef USE_GPU
     for (int ie = 0; ie < numCell; ++ie) {
         totalEnergyLocal[ie] += energyDensity[iband_local][inf_local][ie] *
                                 modeWeight[matter[ie]][iband][inf] /
                                 capacityBulk[matter[ie]];
     }
-#else
-    double *d_totalEnergy, *d_energyDensity, *d_modeWeight, *d_capacityBulk;
-    double *h_modeWeight = new double[numCell];
-    double *h_capacityBulk = new double[numCell];
-
-    // setup
-    MIGRATE_TO_DEVICE_1D(d_totalEnergy, totalEnergyLocal, numCell, double);
-    MIGRATE_TO_DEVICE_1D(d_energyDensity, energyDensity[iband_local][inf_local], numCell, double);
-
-    for (int ie = 0; ie < numCell; ++ie) {
-        h_modeWeight[ie] = modeWeight[matter[ie]][iband][inf];
-        h_capacityBulk[ie] = capacityBulk[matter[ie]];
-    }
-    MIGRATE_TO_DEVICE_1D(d_modeWeight, h_modeWeight, numCell, double);
-    MIGRATE_TO_DEVICE_1D(d_capacityBulk, h_capacityBulk, numCell, double);
-
-    calcGetTotalEnergy<<<1, numCell>>>(d_totalEnergy, d_energyDensity, d_modeWeight, d_capacityBulk);
-
-    // clean up
-    MIGRATE_TO_HOST_1D(totalEnergyLocal, d_totalEnergy, numCell, double);
-    cudaFree(d_energyDensity);
-    cudaFree(d_modeWeight);
-    cudaFree(d_capacityBulk);
-    delete[] h_modeWeight;
-    delete[] h_capacityBulk;
-#endif
 }
 
 void Transient::_get_heat_flux(int iband_local, int inf_local) const {
     int inf = ((inf_local) * numProc + worldRank) % numDirection;
     int iband = iband_local * (ceil(double(numProc) / double(numDirection))) +
                 worldRank / numDirection;
-#ifndef USE_GPU
     for (int ie = 0; ie < numCell; ++ie) {
         heatFluxXLocal[ie] += groupVelocityX[matter[ie]][iband][inf] *
                               modeWeight[matter[ie]][iband][inf] *
@@ -899,54 +871,6 @@ void Transient::_get_heat_flux(int iband_local, int inf_local) const {
                               modeWeight[matter[ie]][iband][inf] *
                               energyDensity[iband_local][inf_local][ie];
     }
-#else
-    double *d_heatFluxXLocal, *d_heatFluxYLocal, *d_heatFluxZLocal;
-    double *d_groupVelocityX, *d_groupVelocityY, *d_groupVelocityZ;
-    double *d_energyDensity, *d_modeWeight;
-
-    // setup
-    MIGRATE_TO_DEVICE_1D(d_heatFluxXLocal, heatFluxXLocal, numCell, double);
-    MIGRATE_TO_DEVICE_1D(d_heatFluxYLocal, heatFluxYLocal, numCell, double);
-    MIGRATE_TO_DEVICE_1D(d_heatFluxZLocal, heatFluxZLocal, numCell, double);
-    MIGRATE_TO_DEVICE_1D(d_energyDensity, energyDensity[iband_local][inf_local], numCell, double);
-
-    // migrate groupVelocity and modeWeight
-    auto *h_groupVelocityX = new double[numCell];
-    auto *h_groupVelocityY = new double[numCell];
-    auto *h_groupVelocityZ = new double[numCell];
-    auto *h_modeWeight = new double[numCell];
-
-    // do migration
-    for (int ie = 0; ie < numCell; ++ie) {
-        h_groupVelocityX[ie] = groupVelocityX[matter[ie]][iband][inf];
-        h_groupVelocityY[ie] = groupVelocityY[matter[ie]][iband][inf];
-        h_groupVelocityZ[ie] = groupVelocityZ[matter[ie]][iband][inf];
-        h_modeWeight[ie] = modeWeight[matter[ie]][iband][inf];
-    }
-
-    MIGRATE_TO_DEVICE_1D(d_groupVelocityX, h_groupVelocityX, numCell, double);
-    MIGRATE_TO_DEVICE_1D(d_groupVelocityY, h_groupVelocityY, numCell, double);
-    MIGRATE_TO_DEVICE_1D(d_groupVelocityZ, h_groupVelocityZ, numCell, double);
-    MIGRATE_TO_DEVICE_1D(d_modeWeight, h_modeWeight, numCell, double);
-
-    calcGetHeatFlux<<<1, numCell>>>(d_heatFluxXLocal, d_groupVelocityX, d_modeWeight, d_energyDensity);
-    calcGetHeatFlux<<<1, numCell>>>(d_heatFluxYLocal, d_groupVelocityY, d_modeWeight, d_energyDensity);
-    calcGetHeatFlux<<<1, numCell>>>(d_heatFluxZLocal, d_groupVelocityZ, d_modeWeight, d_energyDensity);
-
-    // clean up
-    MIGRATE_TO_HOST_1D(heatFluxXLocal, d_heatFluxXLocal, numCell, double);
-    MIGRATE_TO_HOST_1D(heatFluxYLocal, d_heatFluxYLocal, numCell, double);
-    MIGRATE_TO_HOST_1D(heatFluxZLocal, d_heatFluxZLocal, numCell, double);
-    cudaFree(d_energyDensity);
-    cudaFree(d_modeWeight);
-    cudaFree(d_groupVelocityX);
-    cudaFree(d_groupVelocityY);
-    cudaFree(d_groupVelocityZ);
-    delete[] h_groupVelocityX;
-    delete[] h_groupVelocityY;
-    delete[] h_groupVelocityZ;
-    delete[] h_modeWeight;
-#endif
 }
 
 bool Transient::_get_magin_check_error(int nt, double error_temp_limit,
@@ -1137,51 +1061,7 @@ void Transient::_get_gradient_larger(int Use_limiter, int iband_local,
         gradientZ[i] = 0;
         limit[i] = 1;
     }
-#ifdef USE_GPU
-    // elementFaceBound
-    int *d_elementFaceBound;
-    double *d_energyDensity;
-    double *d_elementVolume;
-    MIGRATE_TO_DEVICE_1D(d_elementFaceBound, elementFaceBound, numCell * 6, int);
-    MIGRATE_TO_DEVICE_1D(d_energyDensity, energyDensity[iband_local][inf_local], numCell, double);
-    MIGRATE_TO_DEVICE_1D(d_elementVolume, elementVolume, numCell, double);
-
-    double *d_gradientX, *d_gradientY, *d_gradientZ;
-    MIGRATE_TO_DEVICE_1D(d_gradientX, gradientX, numCell, double);
-    MIGRATE_TO_DEVICE_1D(d_gradientY, gradientY, numCell, double);
-    MIGRATE_TO_DEVICE_1D(d_gradientZ, gradientZ, numCell, double);
-
-    // vector<vector<int>> to double[numCell][numCell]
-    auto *h_elementNeighborList = new int[numCell * numCell];
-    auto *h_elementNeighborListSize = new int[numCell];
-    for (int i = 0; i < numCell; ++i) {
-        h_elementNeighborListSize[i] = elementNeighborList[i].size();
-        for (int j = 0; j < elementNeighborList[i].size(); ++j) {
-            h_elementNeighborList[i * numCell + j] = elementNeighborList[i][j];
-        }
-    }
-    int *d_elementNeighborList;
-    int *d_elementNeighborListSize;
-    MIGRATE_TO_DEVICE_1D(d_elementNeighborList, h_elementNeighborList, numCell * numCell, int);
-    MIGRATE_TO_DEVICE_1D(d_elementNeighborListSize, h_elementNeighborListSize, numCell, int);
-    delete[] h_elementNeighborListSize;
-    delete[] h_elementNeighborList;
-
-    // CellMatrix
-    auto h_CellMatrix = new double[numCell * numCell * 3];
-    for (int i = 0; i < numCell; ++i) {
-        for (int j = 0; j < 3; ++j) {
-            for (int m = 0; m < numCell; ++m) {
-                h_CellMatrix[i * 3 * numCell + j * numCell + m] = CellMatrix[i][j][m];
-            }
-        }
-    }
-    double *d_cellMatrix;
-    MIGRATE_TO_DEVICE_1D(d_cellMatrix, h_CellMatrix, numCell * numCell * 3, double);
-    delete[] h_CellMatrix;
-#endif
     if (dimension == 1) {
-#ifndef USE_GPU
         for (int ie = 0; ie < numCell; ++ie) {
             if (elementFaceBound[ie * 6] == -1 &&
                 elementFaceBound[ie * 6 + 1] == -1) {
@@ -1218,12 +1098,7 @@ void Transient::_get_gradient_larger(int Use_limiter, int iband_local,
                     gradientX[ie] = 0;
             }
         }
-#else
-        calcGetGradientLargerDimension1<<<1, numCell>>>(d_elementFaceBound, d_energyDensity, d_elementVolume,
-                                                        d_gradientX);
-#endif
     } else if (dimension == 2) {
-#ifndef USE_GPU
         for (int i = 0; i < numCell; ++i) {
             if (elementNeighborList[i].size() < 3) {
                 gradientX[i] = 0;
@@ -1258,13 +1133,7 @@ void Transient::_get_gradient_larger(int Use_limiter, int iband_local,
                 }
             }
         }
-#else
-        calcGetGradientLargerDimension2<<<1, numCell>>>(L_x, numCell, d_gradientX, d_gradientY, d_gradientZ,
-                                                        d_elementNeighborList, d_elementNeighborListSize, d_energyDensity,
-                                                        d_cellMatrix);
-#endif
     } else if (dimension == 3) {
-#ifndef USE_GPU
         for (int i = 0; i < numCell; ++i) {
             if (elementNeighborList[i].size() < 3) {
                 gradientX[i] = 0;
@@ -1299,60 +1168,8 @@ void Transient::_get_gradient_larger(int Use_limiter, int iband_local,
                 }
             }
         }
-#else
-        calcGetGradientLargerDimension3<<<1, numCell>>>(L_x, numCell, d_gradientX, d_gradientY, d_gradientZ,
-                                                        d_elementNeighborList, d_elementNeighborListSize,
-                                                        d_energyDensity, d_cellMatrix);
-#endif
     }
     if (Use_limiter == 1) {
-#ifdef USE_GPU
-        int *d_elementFaceSize;
-        MIGRATE_TO_DEVICE_1D(d_elementFaceSize, elementFaceSize, numCell, int);
-
-        double *d_elementFaceCenterX, *d_elementFaceCenterY, *d_elementFaceCenterZ;
-        MIGRATE_TO_DEVICE_1D(d_elementFaceCenterX, elementFaceCenterX, numCell * 6, double);
-        MIGRATE_TO_DEVICE_1D(d_elementFaceCenterY, elementFaceCenterY, numCell * 6, double);
-        MIGRATE_TO_DEVICE_1D(d_elementFaceCenterZ, elementFaceCenterZ, numCell * 6, double);
-
-        // migrate groupVelocity
-        auto *h_groupVelocityX = new double[numCell];
-        auto *h_groupVelocityY = new double[numCell];
-        auto *h_groupVelocityZ = new double[numCell];
-        for (int i = 0; i < numCell; ++i) {
-            h_groupVelocityX[i] = groupVelocityX[matter[i]][iband][inf];
-            h_groupVelocityY[i] = groupVelocityY[matter[i]][iband][inf];
-            h_groupVelocityZ[i] = groupVelocityZ[matter[i]][iband][inf];
-        }
-        double *d_groupVelocityX, *d_groupVelocityY, *d_groupVelocityZ;
-        MIGRATE_TO_DEVICE_1D(d_groupVelocityX, h_groupVelocityX, numCell, double);
-        MIGRATE_TO_DEVICE_1D(d_groupVelocityY, h_groupVelocityY, numCell, double);
-        MIGRATE_TO_DEVICE_1D(d_groupVelocityZ, h_groupVelocityZ, numCell, double);
-        delete[] h_groupVelocityX;
-        delete[] h_groupVelocityY;
-        delete[] h_groupVelocityZ;
-
-        // migrate elementCenter
-        double *d_elementCenterX, *d_elementCenterY,*d_elementCenterZ;
-        MIGRATE_TO_DEVICE_1D(d_elementCenterX, elementCenterX, numCell, double);
-        MIGRATE_TO_DEVICE_1D(d_elementCenterY, elementCenterY, numCell, double);
-        MIGRATE_TO_DEVICE_1D(d_elementCenterZ, elementCenterZ, numCell, double);
-
-        double *d_elementFaceNormX, *d_elementFaceNormY,*d_elementFaceNormZ;
-        MIGRATE_TO_DEVICE_1D(d_elementFaceNormX, elementFaceNormX, numCell * 6, double);
-        MIGRATE_TO_DEVICE_1D(d_elementFaceNormY, elementFaceNormY, numCell * 6, double);
-        MIGRATE_TO_DEVICE_1D(d_elementFaceNormZ, elementFaceNormZ, numCell * 6, double);
-
-        double *d_ebound, *d_limit;
-        MIGRATE_TO_DEVICE_1D(d_ebound, ebound, numBand * numDirection * numBound * 2, double);
-        MIGRATE_TO_DEVICE_1D(d_limit, limit, numCell, double);
-
-        int *d_boundaryType, *d_elementFaceNeighbor;
-        MIGRATE_TO_DEVICE_1D(d_boundaryType, boundaryType, numBound, int);
-        MIGRATE_TO_DEVICE_1D(d_elementFaceNeighbor, elementFaceNeighobr, numCell * 6, int);
-
-#endif
-#ifndef USE_GPU
         for (int i = 0; i < numCell; ++i) {
             double max = energyDensity[iband_local][inf_local][i];
             double min = energyDensity[iband_local][inf_local][i];
@@ -1415,49 +1232,7 @@ void Transient::_get_gradient_larger(int Use_limiter, int iband_local,
                 }
             }
         }
-#else
-            int magic = iband * numDirection * numBound * 2 + inf + numBound * 2;
-            calcGetGradientLargerUseLimit<<<1, numCell>>>(magic, d_limit, d_ebound,
-                                                          d_boundaryType, d_energyDensity, d_elementFaceSize,
-                                                          d_elementFaceBound, d_elementFaceNeighbor,
-                                                          d_elementFaceCenterX, d_elementFaceCenterY,
-                                                          d_elementFaceCenterZ, d_elementCenterX,
-                                                          d_elementCenterY, d_elementCenterZ, d_gradientX,
-                                                          d_gradientY, d_gradientZ, d_groupVelocityX,
-                                                          d_groupVelocityY, d_groupVelocityZ,
-                                                          d_elementFaceNormX, d_elementFaceNormY,
-                                                          d_elementFaceNormZ);
-
-            // cleanup
-            cudaFree(d_elementFaceSize);
-            cudaFree(d_elementFaceCenterX);
-            cudaFree(d_elementFaceCenterY);
-            cudaFree(d_elementFaceCenterZ);
-            cudaFree(d_elementCenterX);
-            cudaFree(d_elementCenterY);
-            cudaFree(d_elementCenterZ);
-            cudaFree(d_groupVelocityX);
-            cudaFree(d_groupVelocityY);
-            cudaFree(d_groupVelocityZ);
-            cudaFree(d_elementFaceNormX);
-            cudaFree(d_elementFaceNormY);
-            cudaFree(d_elementFaceNormZ);
-            cudaFree(d_boundaryType);
-            cudaFree(d_elementFaceNeighbor);
-            cudaFree(d_ebound);
-            MIGRATE_TO_HOST_1D(limit, d_limit, numCell, double);
-#endif
     }
-#ifdef USE_GPU
-    cudaFree(d_elementFaceBound);
-    cudaFree(d_elementNeighborList);
-    cudaFree(d_elementNeighborListSize);
-    cudaFree(d_energyDensity);
-    cudaFree(d_cellMatrix);
-    MIGRATE_TO_HOST_1D(gradientX, d_gradientX, numCell, double);
-    MIGRATE_TO_HOST_1D(gradientY, d_gradientY, numCell, double);
-    MIGRATE_TO_HOST_1D(gradientZ, d_gradientZ, numCell, double);
-#endif
 }
 
 void Transient::_get_explicit_Re(int itime, int spatial_order, int Use_limiter,
@@ -1471,7 +1246,6 @@ void Transient::_get_explicit_Re(int itime, int spatial_order, int Use_limiter,
         Re[i] = 0;
     }
 
-#ifndef USE_GPU  // max_y is not used in following code
     // maxy要加在前面
     double max_y = 0;
     for (int ie = 0; ie < numCell; ie++) {
@@ -1479,9 +1253,7 @@ void Transient::_get_explicit_Re(int itime, int spatial_order, int Use_limiter,
             max_y = elementCenterY[ie];
         }
     }
-#endif
 
-#ifndef USE_GPU
     // internal
     for (int ie = 0; ie < numCell; ++ie) {
         for (int jface = 0; jface < elementFaceSize[ie]; ++jface) {
@@ -1548,134 +1320,6 @@ void Transient::_get_explicit_Re(int itime, int spatial_order, int Use_limiter,
             Re[ie] -= h;
         }
     }
-#else
-    // setup
-    double *d_energyDensity;
-    MIGRATE_TO_DEVICE_1D(d_energyDensity, energyDensity[iband_local][inf_local], numCell, double);
-
-    // migrate groupVelocity and modeWeight
-    auto *h_groupVelocityX = new double[numCell];
-    auto *h_groupVelocityY = new double[numCell];
-    auto *h_groupVelocityZ = new double[numCell];
-    // do migration
-    for (int ie = 0; ie < numCell; ++ie) {
-        h_groupVelocityX[ie] = groupVelocityX[matter[ie]][iband][inf];
-        h_groupVelocityY[ie] = groupVelocityY[matter[ie]][iband][inf];
-        h_groupVelocityZ[ie] = groupVelocityZ[matter[ie]][iband][inf];
-    }
-    double *d_groupVelocityX, *d_groupVelocityY, *d_groupVelocityZ;
-    MIGRATE_TO_DEVICE_1D(d_groupVelocityX, h_groupVelocityX, numCell, double);
-    MIGRATE_TO_DEVICE_1D(d_groupVelocityY, h_groupVelocityY, numCell, double);
-    MIGRATE_TO_DEVICE_1D(d_groupVelocityZ, h_groupVelocityZ, numCell, double);
-    delete[] h_groupVelocityX;
-    delete[] h_groupVelocityY;
-    delete[] h_groupVelocityZ;
-
-    double *d_elementFaceNormX, *d_elementFaceNormY,*d_elementFaceNormZ;
-    MIGRATE_TO_DEVICE_1D(d_elementFaceNormX, elementFaceNormX, numCell * 6, double);
-    MIGRATE_TO_DEVICE_1D(d_elementFaceNormY, elementFaceNormY, numCell * 6, double);
-    MIGRATE_TO_DEVICE_1D(d_elementFaceNormZ, elementFaceNormZ, numCell * 6, double);
-
-    double *d_elementFaceCenterX, *d_elementFaceCenterY, *d_elementFaceCenterZ;
-    MIGRATE_TO_DEVICE_1D(d_elementFaceCenterX, elementFaceCenterX, numCell * 6, double);
-    MIGRATE_TO_DEVICE_1D(d_elementFaceCenterY, elementFaceCenterY, numCell * 6, double);
-    MIGRATE_TO_DEVICE_1D(d_elementFaceCenterZ, elementFaceCenterZ, numCell * 6, double);
-
-    // migrate elementCenter
-    double *d_elementCenterX, *d_elementCenterY,*d_elementCenterZ;
-    MIGRATE_TO_DEVICE_1D(d_elementCenterX, elementCenterX, numCell, double);
-    MIGRATE_TO_DEVICE_1D(d_elementCenterY, elementCenterY, numCell, double);
-    MIGRATE_TO_DEVICE_1D(d_elementCenterZ, elementCenterZ, numCell, double);
-
-    double *d_gradientX, *d_gradientY, *d_gradientZ;
-    MIGRATE_TO_DEVICE_1D(d_gradientX, gradientX, numCell, double);
-    MIGRATE_TO_DEVICE_1D(d_gradientY, gradientY, numCell, double);
-    MIGRATE_TO_DEVICE_1D(d_gradientZ, gradientZ, numCell, double);
-
-    double *d_Re;
-    double *d_limit;
-    double *d_elementVolume;
-    MIGRATE_TO_DEVICE_1D(d_elementVolume, elementVolume, numCell, double);
-    MIGRATE_TO_DEVICE_1D(d_limit, limit, numCell, double);
-    MIGRATE_TO_DEVICE_1D(d_Re, Re, numCell, double);
-
-    int *d_elementFaceSize;
-    MIGRATE_TO_DEVICE_1D(d_elementFaceSize, elementFaceSize, numCell, int);
-
-    double *d_elementHeatSource;
-    MIGRATE_TO_DEVICE_1D(d_elementHeatSource, elementHeatSource, numCell, double);
-
-    auto *h_heatCapacity = new double[numCell];
-    auto *h_heatRatio = new double[numCell];
-    auto *h_relaxationTime = new double[numCell];
-    for (int i = 0; i < numCell; ++i) {
-        h_heatCapacity[i] = heatCapacity[matter[i]][iband][inf];
-        h_heatRatio[i] = heatRatio[matter[i]][iband][inf];
-        h_relaxationTime[i] = relaxationTime[matter[i]][iband][inf];
-    }
-    double *d_heatRatio;
-    double *d_heatCapacity;
-    double *d_relaxationTime;
-    MIGRATE_TO_DEVICE_1D(d_heatRatio, h_heatRatio, numCell, double);
-    MIGRATE_TO_DEVICE_1D(d_heatCapacity, h_heatCapacity, numCell, double);
-    MIGRATE_TO_DEVICE_1D(d_relaxationTime, h_relaxationTime, numCell, double);
-    delete[] h_heatRatio;
-    delete[] h_heatCapacity;
-    delete[] h_relaxationTime;
-
-    double *d_temperatureOld;
-    double *d_elementFaceArea;
-    MIGRATE_TO_DEVICE_1D(d_temperatureOld, temperatureOld, numCell, double);
-    MIGRATE_TO_DEVICE_1D(d_elementFaceArea, elementFaceArea, numCell * 6, double);
-
-    int *d_elementFaceNeighbor;
-    int *d_elementFaceBound;
-    MIGRATE_TO_DEVICE_1D(d_elementFaceNeighbor, elementFaceNeighobr, numCell * 6, int);
-    MIGRATE_TO_DEVICE_1D(d_elementFaceBound, elementFaceBound, numCell * 6, int);
-
-    calcGetExplicitRe<<<1, numCell>>>(use_TDTR, deltaTime, d_elementFaceSize, repetition_frequency,
-                                      modulation_frequency, pulse_time, itime, d_Re,
-                                      d_groupVelocityX, d_groupVelocityY, d_groupVelocityZ,
-                                      d_elementFaceNormX, d_elementFaceNormY, d_elementFaceNormZ,
-                                      d_elementFaceArea, d_elementVolume,
-                                      d_elementFaceCenterX, d_elementFaceCenterY, d_elementFaceCenterZ,
-                                      d_elementCenterX, d_elementCenterY, d_elementCenterZ, d_energyDensity,
-                                      d_gradientX, d_gradientY, d_gradientZ,
-                                      d_limit, d_elementFaceBound, d_elementFaceNeighbor,
-                                      d_elementHeatSource, d_heatRatio, d_heatCapacity,
-                                      d_relaxationTime, d_temperatureOld);
-
-    // migrate back
-    MIGRATE_TO_HOST_1D(Re, d_Re, numCell, double);
-
-    cudaFree(d_energyDensity);
-    cudaFree(d_groupVelocityX);
-    cudaFree(d_groupVelocityY);
-    cudaFree(d_groupVelocityZ);
-    cudaFree(d_elementFaceNormX);
-    cudaFree(d_elementFaceNormY);
-    cudaFree(d_elementFaceNormZ);
-    cudaFree(d_elementFaceCenterX);
-    cudaFree(d_elementFaceCenterY);
-    cudaFree(d_elementFaceCenterZ);
-    cudaFree(d_elementCenterX);
-    cudaFree(d_elementCenterY);
-    cudaFree(d_elementCenterZ);
-    cudaFree(d_gradientX);
-    cudaFree(d_gradientY);
-    cudaFree(d_gradientZ);
-    cudaFree(d_limit);
-    cudaFree(d_elementVolume);
-    cudaFree(d_elementFaceSize);
-    cudaFree(d_elementHeatSource);
-    cudaFree(d_heatRatio);
-    cudaFree(d_heatCapacity);
-    cudaFree(d_relaxationTime);
-    cudaFree(d_temperatureOld);
-    cudaFree(d_elementFaceArea);
-    cudaFree(d_elementFaceNeighbor);
-    cudaFree(d_elementFaceBound);
-#endif
     for (int ib = 0; ib < numBound; ++ib) {
         for (int icell = 0; icell < 2; ++icell) {
             int ie = boundaryCell[ib][icell];
