@@ -3,10 +3,6 @@
 
 #include "TransientBTE/transient.h"
 
-/* energyDensity calculation kernel */
-void copyEnergyDensityToGPU(Transient &solver);
-
-void copyEnergyDensityToCPU(Transient &solver);
 
 __global__ void
 calcEnergyDensity(double deltaT, double *d_energyDensity, const double *d_Re, const double *d_relaxationTime);
@@ -61,4 +57,21 @@ calcGetExplicitRe(int use_TDTR, double deltaTime, const int *d_elementFaceSize, 
                   const double *d_gradientZ, const double *d_limit, const int *d_elementFaceBound,
                   const int *d_elementFaceNeighbor, const double *d_elementHeatSource, const double *d_heatRatio,
                   const double *d_heatCapacity, const double *d_relaxationTime, const double *d_temperatureOld);
+
+__global__ void
+calcGetExplicitReRest(int magic, double *d_Re, const double *d_ebound,
+                      const int *d_boundaryCell, const int *d_boundaryFace, const double *d_groupVelocityX,
+                      const double *d_groupVelocityY, const double *d_groupVelocityZ, const double *d_elementFaceNormX,
+                      const double *d_elementFaceNormY, const double *d_elementFaceNormZ,
+                      const double *d_elementFaceArea, const double *d_elementVolume);
+
+__global__ void
+calcGetBoundEE(int iband, int iband_local, int inf, int numBound, int numDirection, const int *d_boundaryCell,
+               const int *d_boundaryFace, const double *d_groupVelocityX, const double *d_groupVelocityY,
+               const double *d_groupVelocityZ, const double *d_elementFaceNormX, const double *d_elementFaceNormY,
+               const double *d_elementFaceNormZ, const double *d_elementFaceCenterX, const double *d_elementFaceCenterY,
+               const double *d_elementFaceCenterZ, const double *d_elementCenterX, const double *d_elementCenterY,
+               const double *d_elementCenterZ, const double *d_energyDensity, const double *d_limit,
+               const double *d_gradientX, const double *d_gradientY, const double *d_gradientZ, double *d_eboundLocal,
+               double *d_ebound);
 #endif

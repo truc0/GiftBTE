@@ -864,7 +864,6 @@ void Transient::_get_total_energy(int iband_local, int inf_local) const {
     MIGRATE_TO_DEVICE_1D(d_totalEnergy, totalEnergyLocal, numCell, double);
     MIGRATE_TO_DEVICE_1D(d_energyDensity, energyDensity[iband_local][inf_local], numCell, double);
 
-#pragma omp parallel for
     for (int ie = 0; ie < numCell; ++ie) {
         h_modeWeight[ie] = modeWeight[matter[ie]][iband][inf];
         h_capacityBulk[ie] = capacityBulk[matter[ie]];
@@ -1417,7 +1416,7 @@ void Transient::_get_gradient_larger(int Use_limiter, int iband_local,
             }
         }
 #else
-            int magic = -0;
+            int magic = iband * numDirection * numBound * 2 + inf + numBound * 2;
             calcGetGradientLargerUseLimit<<<1, numCell>>>(magic, d_limit, d_ebound,
                                                           d_boundaryType, d_energyDensity, d_elementFaceSize,
                                                           d_elementFaceBound, d_elementFaceNeighbor,

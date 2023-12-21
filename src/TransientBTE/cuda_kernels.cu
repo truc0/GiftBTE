@@ -3,6 +3,10 @@
 
 #define SGN(x) ((x) > 0 ? 1.0 : ((x) < 0 ? -1.0 : 0.0))
 
+namespace GPU {
+
+}
+
 __global__ void
 calcEnergyDensity(double deltaT, double *d_energyDensity, const double *d_Re, const double *d_relaxationTime) {
     const auto iCell = threadIdx.x;
@@ -214,30 +218,25 @@ calcGetExplicitRe(int use_TDTR, double deltaTime, const int *d_elementFaceSize, 
                   const double *d_heatCapacity, const double *d_relaxationTime, const double *d_temperatureOld) {
     const auto ie = threadIdx.x;
     for (int jface = 0; jface < d_elementFaceSize[ie]; ++jface) {
-        double dotproduct = (d_groupVelocityX[ie] *
-                             d_elementFaceNormX[jface + ie * 6] +
-                             d_groupVelocityY[ie] *
-                             d_elementFaceNormY[jface + ie * 6] +
-                             d_groupVelocityZ[ie] *
-                             d_elementFaceNormZ[jface + ie * 6]);
-        double temp = d_elementFaceArea[jface + ie * 6] / d_elementVolume[ie] * dotproduct; //
+        double dotproduct = d_groupVelocityX[ie] * d_elementFaceNormX[jface + ie * 6] +
+                            d_groupVelocityY[ie] * d_elementFaceNormY[jface + ie * 6] +
+                            d_groupVelocityZ[ie] * d_elementFaceNormZ[jface + ie * 6];
+        double temp = d_elementFaceArea[jface + ie * 6] / d_elementVolume[ie] * dotproduct;
         if (dotproduct >= 0) {
             double ax = d_elementFaceCenterX[jface + ie * 6] - d_elementCenterX[ie];
             double ay = d_elementFaceCenterY[jface + ie * 6] - d_elementCenterY[ie];
             double az = d_elementFaceCenterZ[jface + ie * 6] - d_elementCenterZ[ie];
-            double e =
-                    (d_energyDensity[ie] +
-                     (ax * d_gradientX[ie] + ay * d_gradientY[ie] + az * d_gradientZ[ie]) *
-                     d_limit[ie]);
+            double e = d_energyDensity[ie] +
+                       (ax * d_gradientX[ie] + ay * d_gradientY[ie] + az * d_gradientZ[ie]) * d_limit[ie];
             d_Re[ie] += temp * e;
         } else if (d_elementFaceBound[jface + ie * 6] == -1) {
             int neiindex = d_elementFaceNeighbor[jface + ie * 6];
             double ax = d_elementFaceCenterX[jface + ie * 6] - d_elementCenterX[neiindex];
             double ay = d_elementFaceCenterY[jface + ie * 6] - d_elementCenterY[neiindex];
             double az = d_elementFaceCenterZ[jface + ie * 6] - d_elementCenterZ[neiindex];
-            double e = (d_energyDensity[neiindex] +
-                        (ax * d_gradientX[neiindex] + ay * d_gradientY[neiindex] + az * d_gradientZ[neiindex]) *
-                        d_limit[neiindex]);
+            double e = d_energyDensity[neiindex] +
+                       (ax * d_gradientX[neiindex] + ay * d_gradientY[neiindex] + az * d_gradientZ[neiindex]) *
+                       d_limit[neiindex];
             d_Re[ie] += temp * e;
         }
     }
@@ -249,8 +248,8 @@ calcGetExplicitRe(int use_TDTR, double deltaTime, const int *d_elementFaceSize, 
         int times = pulse_time / deltaTime;
         int new_itime = itime / times;
         int tt = 1.0 / repetition_frequency * 1e-6 / deltaTime;
-        int numheat = (new_itime) / tt;
-        int checkheat = (new_itime) - numheat * tt;
+        int numheat = new_itime / tt;
+        int checkheat = new_itime - numheat * tt;
         double interg = 1.0;
         double TT = 1.0 / (tt * (repetition_frequency / modulation_frequency) *
                            deltaTime);
@@ -263,4 +262,90 @@ calcGetExplicitRe(int use_TDTR, double deltaTime, const int *d_elementFaceSize, 
         double h = heatindex * d_heatRatio[ie] * d_elementHeatSource[ie];
         d_Re[ie] -= h;
     }
+}
+
+
+// <<<1, numBound * 2>>>
+// Usage: idx = ib * 2 + cell
+// magic = iband * numDirection * numBound * 2 + inf * numBound * 2
+__global__ void
+calcGetExplicitReRest(int magic, double *d_Re, const double *d_ebound,
+                      const int *d_boundaryCell, const int *d_boundaryFace, const double *d_groupVelocityX,
+                      const double *d_groupVelocityY, const double *d_groupVelocityZ, const double *d_elementFaceNormX,
+                      const double *d_elementFaceNormY, const double *d_elementFaceNormZ,
+                      const double *d_elementFaceArea, const double *d_elementVolume) {
+    const auto idx = threadIdx.x;
+    int ie = d_boundaryCell[idx];
+    int jface = d_boundaryFace[idx];
+    if (ie >= 0) {
+        double dotproduct = d_groupVelocityX[ie] * d_elementFaceNormX[jface + ie * 6] +
+                            d_groupVelocityY[ie] * d_elementFaceNormY[jface + ie * 6] +
+                            d_groupVelocityZ[ie] * d_elementFaceNormZ[jface + ie * 6];
+        if (dotproduct < 0) {
+            double temp = d_elementFaceArea[jface + ie * 6] / d_elementVolume[ie] * dotproduct;
+            d_Re[ie] += temp * d_ebound[magic + idx];
+        }
+    }
+}
+
+
+// <<<1, numBound * 2>>>
+// Usage: idx = ib * 2 + cell
+__global__ void
+calcGetBoundEE(int iband, int iband_local, int inf, int numBound, int numDirection, const int *d_boundaryCell,
+               const int *d_boundaryFace, const double *d_groupVelocityX, const double *d_groupVelocityY,
+               const double *d_groupVelocityZ, const double *d_elementFaceNormX, const double *d_elementFaceNormY,
+               const double *d_elementFaceNormZ, const double *d_elementFaceCenterX, const double *d_elementFaceCenterY,
+               const double *d_elementFaceCenterZ, const double *d_elementCenterX, const double *d_elementCenterY,
+               const double *d_elementCenterZ, const double *d_energyDensity, const double *d_limit,
+               const double *d_gradientX, const double *d_gradientY, const double *d_gradientZ, double *d_eboundLocal,
+               double *d_ebound) {
+    const auto idx = threadIdx.x;
+    int ie = d_boundaryCell[idx];
+    int jface = d_boundaryFace[idx];
+    if (ie >= 0) {
+        double dotproduct = d_groupVelocityX[ie] * d_elementFaceNormX[jface + ie * 6] +
+                            d_groupVelocityY[ie] * d_elementFaceNormY[jface + ie * 6] +
+                            d_groupVelocityZ[ie] * d_elementFaceNormZ[jface + ie * 6];
+        if (dotproduct >= 0) {
+            double ax = d_elementFaceCenterX[jface + ie * 6] - d_elementCenterX[ie];
+            double ay = d_elementFaceCenterY[jface + ie * 6] - d_elementCenterY[ie];
+            double az = d_elementFaceCenterZ[jface + ie * 6] - d_elementCenterZ[ie];
+            double e = (d_energyDensity[ie] +
+                        (ax * d_gradientX[ie] + ay * d_gradientY[ie] + az * d_gradientZ[ie]) * d_limit[ie]);
+            d_eboundLocal[iband_local * numBound * 2 + idx] = e;
+            d_ebound[iband * numDirection * numBound * 2 + inf * numBound * 2 + idx] = e;
+        }
+    }
+
+//    const auto ib = threadIdx.x;
+//    for (int icell = 0; icell < 2; ++icell) {
+//        int ie = d_boundaryCell[ib * 2 + icell];
+//        int jface = d_boundaryFace[ib * 2 + icell];
+//        if (ie >= 0) {
+//            double dotproduct = (d_groupVelocityX[ie] *
+//                                 d_elementFaceNormX[jface + ie * 6] +
+//                                 d_groupVelocityY[ie] *
+//                                 d_elementFaceNormY[jface + ie * 6] +
+//                                 d_groupVelocityZ[ie] *
+//                                 d_elementFaceNormZ[jface + ie * 6]);
+//            if (dotproduct >= 0) {
+//                double ax = d_elementFaceCenterX[jface + ie * 6] - d_elementCenterX[ie];
+//                double ay = d_elementFaceCenterY[jface + ie * 6] - d_elementCenterY[ie];
+//                double az = d_elementFaceCenterZ[jface + ie * 6] - d_elementCenterZ[ie];
+//                double e = (d_energyDensity[ie] +
+//                            (ax * d_gradientX[ie] + ay * d_gradientY[ie] + az * d_gradientZ[ie]) *
+//                            d_limit[ie]);
+//                d_eboundLocal[iband_local * numBound * 2 + ib * 2 + icell] = e;
+//                d_ebound[iband * numDirection * numBound * 2 + inf * numBound * 2 +
+//                         ib * 2 + icell] = e;
+//            }
+//        }
+//    }
+
+//    MPI_Allgather(
+//            eboundLocal + iband_local * numBound * 2, numBound * 2, MPI_DOUBLE,
+//            (ebound + numBound * 2 * (inf - worldRank % numDirection)) +
+//            numDirection * numBound * 2 * (iband - worldRank / numDirection),
+//            numBound * 2, MPI_DOUBLE, MPI_COMM_WORLD);
 }
