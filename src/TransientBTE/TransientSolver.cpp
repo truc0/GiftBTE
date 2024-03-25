@@ -1,6 +1,7 @@
 //
 // Created by yuehu on 2023/5/21.
 //
+#include <unistd.h>
 
 #ifdef USE_GPU
 
@@ -333,12 +334,163 @@ void Transient::solve(int Use_Backup, double error_temp_limit,
     if (use_TDTR == 0) {
         ofstream outputT("TTG.dat");
         std::cout << "IMPT::numCell " << numCell << std::endl;
+        std::cout << "IMPT::numBound " << numBound << std::endl;
         int blockCnt = 1;
         int threadCnt = numCell;
         while (threadCnt % 2 == 0 && blockCnt < threadCnt) {
             threadCnt /= 2;
             blockCnt *= 2;
         }
+
+#ifdef USE_GPU
+        // migrate elementFaceCenter{X,Y,Z} to GPU
+        double *d_elementFaceCenterX, *d_elementFaceCenterY, *d_elementFaceCenterZ;
+        CUDAECHK(cudaMalloc(&d_elementFaceCenterX, numCell * 6 * sizeof(double)));
+        CUDAECHK(cudaMalloc(&d_elementFaceCenterY, numCell * 6 * sizeof(double)));
+        CUDAECHK(cudaMalloc(&d_elementFaceCenterZ, numCell * 6 * sizeof(double)));
+
+        // migrate elementCenter
+        double *d_elementCenterX, *d_elementCenterY, *d_elementCenterZ;
+        CUDAECHK(cudaMalloc(&d_elementCenterX, numCell * sizeof(double)));
+        CUDAECHK(cudaMalloc(&d_elementCenterY, numCell * sizeof(double)));
+        CUDAECHK(cudaMalloc(&d_elementCenterZ, numCell * sizeof(double)));
+
+        // migrate elementFaceNorm
+        double *d_elementFaceNormX, *d_elementFaceNormY, *d_elementFaceNormZ;
+        CUDAECHK(cudaMalloc(&d_elementFaceNormX, numCell * 6 * sizeof(double)));
+        CUDAECHK(cudaMalloc(&d_elementFaceNormY, numCell * 6 * sizeof(double)));
+        CUDAECHK(cudaMalloc(&d_elementFaceNormZ, numCell * 6 * sizeof(double)));
+
+        // migrate boundaryCell and boundaryFace
+        int *d_boundaryCell, *d_boundaryFace;
+        CUDAECHK(cudaMalloc(&d_boundaryCell, numBound * 2 * sizeof(int)));
+        CUDAECHK(cudaMalloc(&d_boundaryFace, numBound * 2 * sizeof(int)));
+        auto *h_boundaryCell = new int[numBound * 2];
+        auto *h_boundaryFace = new int[numBound * 2];
+
+        // migrate gradient{X,Y,Z} to GPU
+        double *d_gradientX, *d_gradientY, *d_gradientZ;
+        CUDAECHK(cudaMalloc(&d_gradientX, numCell * sizeof(double)));
+        CUDAECHK(cudaMalloc(&d_gradientY, numCell * sizeof(double)));
+        CUDAECHK(cudaMalloc(&d_gradientZ, numCell * sizeof(double)));
+
+        // migrate elementNeighbor
+        auto *h_elementNeighborList = new int[numCell * numCell];
+        auto *h_elementNeighborListSize = new int[numCell];
+        int *d_elementNeighborList;
+        int *d_elementNeighborListSize;
+        CUDAECHK(cudaMalloc(&d_elementNeighborList, numCell * numCell * sizeof(int)));
+        CUDAECHK(cudaMalloc(&d_elementNeighborListSize, numCell * sizeof(int)));
+
+        auto h_CellMatrix = new double[numCell * numCell * 3];
+        double *d_cellMatrix;
+        CUDAECHK(cudaMalloc(&d_cellMatrix, numCell * numCell * 3 * sizeof(double)));
+
+        // migrate Re
+        double *d_Re;
+        CUDAECHK(cudaMalloc(&d_Re, numCell * sizeof(double)));
+
+        // migrate elementFaceBound and elementVolume
+        int *d_elementFaceBound;
+        double *d_elementVolume;
+        CUDAECHK(cudaMalloc(&d_elementFaceBound, numCell * 6 * sizeof(int)));
+        CUDAECHK(cudaMalloc(&d_elementVolume, numCell * sizeof(double)));
+
+        // migrate elementFaceSize
+        int *d_elementFaceSize;
+        CUDAECHK(cudaMalloc(&d_elementFaceSize, numCell * sizeof(int)));
+
+        // migrate capacityBulk
+        double *d_capacityBulk;
+        CUDAECHK(cudaMalloc(&d_capacityBulk, numCell * sizeof(double)));
+        auto *h_capacityBulk = new double[numCell];
+
+        int *d_boundaryType, *d_elementFaceNeighbor;
+        CUDAECHK(cudaMalloc(&d_boundaryType, numBound * sizeof(int)));
+        CUDAECHK(cudaMalloc(&d_elementFaceNeighbor, numCell * 6 * sizeof(int)));
+
+        double *d_ebound;
+        CUDAECHK(cudaMalloc(&d_ebound, numBand * numDirection * numBound * 2 * sizeof(double)));
+
+        double *d_elementHeatSource;
+        CUDAECHK(cudaMalloc(&d_elementHeatSource, numCell * sizeof(double)));
+
+        double *d_totalEnergyLocal;
+        CUDAECHK(cudaMalloc(&d_totalEnergyLocal, numCell * sizeof(double)));
+
+        double *d_temperatureLocal;
+        CUDAECHK(cudaMalloc(&d_temperatureLocal, numCell * sizeof(double)));
+
+        // migrate limit
+        auto initialValueForLimit = new double[numCell];
+        for (int i = 0; i < numCell; ++i) {
+            initialValueForLimit[i] = 1;
+        }
+        double *d_limit;
+        CUDAECHK(cudaMalloc(&d_limit, numCell * sizeof(double)));
+
+        // migrate heatFluxLocal
+        double *d_heatFluxXLocal, *d_heatFluxYLocal, *d_heatFluxZLocal;
+        CUDAECHK(cudaMalloc(&d_heatFluxXLocal, numCell * sizeof(double)));
+        CUDAECHK(cudaMalloc(&d_heatFluxYLocal, numCell * sizeof(double)));
+        CUDAECHK(cudaMalloc(&d_heatFluxZLocal, numCell * sizeof(double)));
+
+        double *d_temperatureOld;
+        double *d_elementFaceArea;
+        CUDAECHK(cudaMalloc(&d_temperatureOld, numCell * sizeof(double)));
+        CUDAECHK(cudaMalloc(&d_elementFaceArea, numCell * 6 * sizeof(double)));
+
+        double *d_eboundLocal;
+        CUDAECHK(cudaMalloc(&d_eboundLocal, numBand * numDirection * numBound * 2 * sizeof(double)));
+
+        // migrate energyDensity, groupVelocity{X,Y,Z}
+        auto d_energyDensityArray = new double *[numDirectionLocal * numBandLocal];
+        auto d_groupVelocityXArray = new double *[numDirectionLocal * numBandLocal];
+        auto d_groupVelocityYArray = new double *[numDirectionLocal * numBandLocal];
+        auto d_groupVelocityZArray = new double *[numDirectionLocal * numBandLocal];
+
+        auto h_groupVelocityX = new double[numCell];
+        auto h_groupVelocityY = new double[numCell];
+        auto h_groupVelocityZ = new double[numCell];
+
+        auto *h_heatCapacity = new double[numCell];
+        auto *h_heatRatio = new double[numCell];
+        auto *h_relaxationTime = new double[numCell];
+        auto d_heatCapacityArray = new double *[numDirectionLocal * numBandLocal];
+        auto d_heatRatioArray = new double *[numDirectionLocal * numBandLocal];
+        auto d_relaxationTimeArray = new double *[numDirectionLocal * numBandLocal];
+
+        auto h_latticeRatio = new double[numCell];
+        auto h_modeWeight = new double[numCell];
+        auto d_latticeRatioArray = new double *[numDirectionLocal * numBandLocal];
+        auto d_modeWeightArray = new double *[numDirectionLocal * numBandLocal];
+
+        for (int inf_local = 0; inf_local < numDirectionLocal; inf_local++) {
+            for (int iband_local = 0; iband_local < numBandLocal; ++iband_local) {
+                const int inf = ((inf_local) * numProc + worldRank) % numDirection;
+                const int iband = iband_local * (ceil(double(numProc) / double(numDirection))) +
+                                  worldRank / numDirection;
+
+                // energyDensity
+                CUDAECHK(cudaMalloc(&d_energyDensityArray[inf_local * numBandLocal + iband_local], numCell * sizeof(double)));
+
+                // groupVelocity
+                CUDAECHK(cudaMalloc(&d_groupVelocityXArray[inf_local * numBandLocal + iband_local], numCell * sizeof(double)));
+                CUDAECHK(cudaMalloc(&d_groupVelocityYArray[inf_local * numBandLocal + iband_local], numCell * sizeof(double)));
+                CUDAECHK(cudaMalloc(&d_groupVelocityZArray[inf_local * numBandLocal + iband_local], numCell * sizeof(double)));
+
+                // heatCapactiy, heatRatio, relaxationTime
+                CUDAECHK(cudaMalloc(&d_heatRatioArray[inf_local * numBandLocal + iband_local], numCell * sizeof(double)));
+                CUDAECHK(cudaMalloc(&d_heatCapacityArray[inf_local * numBandLocal + iband_local], numCell * sizeof(double)));
+                CUDAECHK(cudaMalloc(&d_relaxationTimeArray[inf_local * numBandLocal + iband_local], numCell * sizeof(double)));
+
+                // modeWeight, latticeRatio
+                CUDAECHK(cudaMalloc(&d_latticeRatioArray[inf_local * numBandLocal + iband_local], numCell * sizeof(double)));
+                CUDAECHK(cudaMalloc(&d_modeWeightArray[inf_local * numBandLocal + iband_local], numCell * sizeof(double)));
+            }
+        }
+#endif
+
         for (int nt = 0; nt < Num_Max_Iter; ++nt) {
             total_iter_time = chrono::microseconds(0);
             get_gradient_time = chrono::microseconds(0);
@@ -357,28 +509,21 @@ void Transient::solve(int Use_Backup, double error_temp_limit,
 
 #ifdef USE_GPU
             // migrate elementFaceCenter{X,Y,Z} to GPU
-            double *d_elementFaceCenterX, *d_elementFaceCenterY, *d_elementFaceCenterZ;
-            MIGRATE_TO_DEVICE_1D(d_elementFaceCenterX, elementFaceCenterX, numCell * 6, double);
-            MIGRATE_TO_DEVICE_1D(d_elementFaceCenterY, elementFaceCenterY, numCell * 6, double);
-            MIGRATE_TO_DEVICE_1D(d_elementFaceCenterZ, elementFaceCenterZ, numCell * 6, double);
+            CUDAECHK(cudaMemcpy(d_elementFaceCenterX, elementFaceCenterX, numCell * 6 * sizeof(double), cudaMemcpyHostToDevice));
+            CUDAECHK(cudaMemcpy(d_elementFaceCenterY, elementFaceCenterY, numCell * 6 * sizeof(double), cudaMemcpyHostToDevice));
+            CUDAECHK(cudaMemcpy(d_elementFaceCenterZ, elementFaceCenterZ, numCell * 6 * sizeof(double), cudaMemcpyHostToDevice));
 
             // migrate elementCenter
-            double *d_elementCenterX, *d_elementCenterY, *d_elementCenterZ;
-            MIGRATE_TO_DEVICE_1D(d_elementCenterX, elementCenterX, numCell, double);
-            MIGRATE_TO_DEVICE_1D(d_elementCenterY, elementCenterY, numCell, double);
-            MIGRATE_TO_DEVICE_1D(d_elementCenterZ, elementCenterZ, numCell, double);
+            CUDAECHK(cudaMemcpy(d_elementCenterX, elementCenterX, numCell * sizeof(double), cudaMemcpyHostToDevice));
+            CUDAECHK(cudaMemcpy(d_elementCenterY, elementCenterY, numCell * sizeof(double), cudaMemcpyHostToDevice));
+            CUDAECHK(cudaMemcpy(d_elementCenterZ, elementCenterZ, numCell * sizeof(double), cudaMemcpyHostToDevice));
 
             // migrate elementFaceNorm
-            double *d_elementFaceNormX, *d_elementFaceNormY, *d_elementFaceNormZ;
-            MIGRATE_TO_DEVICE_1D(d_elementFaceNormX, elementFaceNormX, numCell * 6, double);
-            MIGRATE_TO_DEVICE_1D(d_elementFaceNormY, elementFaceNormY, numCell * 6, double);
-            MIGRATE_TO_DEVICE_1D(d_elementFaceNormZ, elementFaceNormZ, numCell * 6, double);
+            CUDAECHK(cudaMemcpy(d_elementFaceNormX, elementFaceNormX, numCell * 6 * sizeof(double), cudaMemcpyHostToDevice));
+            CUDAECHK(cudaMemcpy(d_elementFaceNormY, elementFaceNormY, numCell * 6 * sizeof(double), cudaMemcpyHostToDevice));
+            CUDAECHK(cudaMemcpy(d_elementFaceNormZ, elementFaceNormZ, numCell * 6 * sizeof(double), cudaMemcpyHostToDevice));
 
             // migrate boundaryCell and boundaryFace
-            int *d_boundaryCell, *d_boundaryFace;
-            auto *h_boundaryCell = new int[numBound * 2];
-            auto *h_boundaryFace = new int[numBound * 2];
-
             for (int ib = 0; ib < numBound; ++ib) {
                 for (int icell = 0; icell < 2; ++icell) {
                     h_boundaryCell[ib * 2 + icell] = boundaryCell[ib][icell];
@@ -386,33 +531,24 @@ void Transient::solve(int Use_Backup, double error_temp_limit,
                 }
             }
 
-            MIGRATE_TO_DEVICE_1D(d_boundaryCell, h_boundaryCell, numBound * 2, int);
-            MIGRATE_TO_DEVICE_1D(d_boundaryFace, h_boundaryFace, numBound * 2, int);
+            CUDAECHK(cudaMemcpy(d_boundaryCell, h_boundaryCell, numBound * 2 * sizeof(int), cudaMemcpyHostToDevice));
+            CUDAECHK(cudaMemcpy(d_boundaryFace, h_boundaryFace, numBound * 2 * sizeof(int), cudaMemcpyHostToDevice));
 
             // migrate gradient{X,Y,Z} to GPU
-            double *d_gradientX, *d_gradientY, *d_gradientZ;
             // d_gradient{X,Y,Z} will be set to 0 later, so no need to migrate
-            cudaMalloc(&d_gradientX, numCell * sizeof(double));
-            cudaMalloc(&d_gradientY, numCell * sizeof(double));
-            cudaMalloc(&d_gradientZ, numCell * sizeof(double));
 
             // migrate elementNeighborList and size to GPU
             // vector<vector<int>> to double[numCell][numCell]
-            auto *h_elementNeighborList = new int[numCell * numCell];
-            auto *h_elementNeighborListSize = new int[numCell];
             for (int i = 0; i < numCell; ++i) {
                 h_elementNeighborListSize[i] = elementNeighborList[i].size();
                 for (int j = 0; j < elementNeighborList[i].size(); ++j) {
                     h_elementNeighborList[i * numCell + j] = elementNeighborList[i][j];
                 }
             }
-            int *d_elementNeighborList;
-            int *d_elementNeighborListSize;
-            MIGRATE_TO_DEVICE_1D(d_elementNeighborList, h_elementNeighborList, numCell * numCell, int);
-            MIGRATE_TO_DEVICE_1D(d_elementNeighborListSize, h_elementNeighborListSize, numCell, int);
+            CUDAECHK(cudaMemcpy(d_elementNeighborList, h_elementNeighborList, numCell * numCell * sizeof(int), cudaMemcpyHostToDevice));
+            CUDAECHK(cudaMemcpy(d_elementNeighborListSize, h_elementNeighborListSize, numCell * sizeof(int), cudaMemcpyHostToDevice));
 
             // migrate CellMatrix to GPU
-            auto h_CellMatrix = new double[numCell * numCell * 3];
             for (int i = 0; i < numCell; ++i) {
                 for (int j = 0; j < 3; ++j) {
                     for (int m = 0; m < numCell; ++m) {
@@ -420,91 +556,41 @@ void Transient::solve(int Use_Backup, double error_temp_limit,
                     }
                 }
             }
-            double *d_cellMatrix;
-            MIGRATE_TO_DEVICE_1D(d_cellMatrix, h_CellMatrix, numCell * numCell * 3, double);
-
-            // migrate Re
-            double *d_Re;
-            cudaMalloc(&d_Re, numCell * sizeof(double));
+            CUDAECHK(cudaMemcpy(d_cellMatrix, h_CellMatrix, numCell * numCell * 3 * sizeof(double), cudaMemcpyHostToDevice));
 
             // migrate elementFaceBound and elementVolume
-            int *d_elementFaceBound;
-            double *d_elementVolume;
-            MIGRATE_TO_DEVICE_1D(d_elementFaceBound, elementFaceBound, numCell * 6, int);
-            MIGRATE_TO_DEVICE_1D(d_elementVolume, elementVolume, numCell, double);
+            CUDAECHK(cudaMemcpy(d_elementFaceBound, elementFaceBound, numCell * 6 * sizeof(int), cudaMemcpyHostToDevice));
+            CUDAECHK(cudaMemcpy(d_elementVolume, elementVolume, numCell * sizeof(double), cudaMemcpyHostToDevice));
 
             // migrate elementFaceSize
-            int *d_elementFaceSize;
-            MIGRATE_TO_DEVICE_1D(d_elementFaceSize, elementFaceSize, numCell, int);
+            CUDAECHK(cudaMemcpy(d_elementFaceSize, elementFaceSize, numCell * sizeof(int), cudaMemcpyHostToDevice));
 
             // migrate capacityBulk
-            double *d_capacityBulk;
-            auto *h_capacityBulk = new double[numCell];
             for (int ie = 0; ie < numCell; ++ie) {
                 h_capacityBulk[ie] = capacityBulk[matter[ie]];
             }
-            MIGRATE_TO_DEVICE_1D(d_capacityBulk, h_capacityBulk, numCell, double);
+            CUDAECHK(cudaMemcpy(d_capacityBulk, h_capacityBulk, numCell * sizeof(double), cudaMemcpyHostToDevice));
 
-            int *d_boundaryType, *d_elementFaceNeighbor;
-            MIGRATE_TO_DEVICE_1D(d_boundaryType, boundaryType, numBound, int);
-            MIGRATE_TO_DEVICE_1D(d_elementFaceNeighbor, elementFaceNeighobr, numCell * 6, int);
+            CUDAECHK(cudaMemcpy(d_boundaryType, boundaryType, numBound * sizeof(int), cudaMemcpyHostToDevice));
+            CUDAECHK(cudaMemcpy(d_elementFaceNeighbor, elementFaceNeighobr, numCell * 6 * sizeof(int), cudaMemcpyHostToDevice));
 
-            double *d_ebound;
-            MIGRATE_TO_DEVICE_1D(d_ebound, ebound, numBand * numDirection * numBound * 2, double);
+            CUDAECHK(cudaMemcpy(d_ebound, ebound, numBand * numDirection * numBound * 2 * sizeof(double), cudaMemcpyHostToDevice));
 
-            double *d_elementHeatSource;
-            MIGRATE_TO_DEVICE_1D(d_elementHeatSource, elementHeatSource, numCell, double);
+            CUDAECHK(cudaMemcpy(d_elementHeatSource, elementHeatSource, numCell * sizeof(double), cudaMemcpyHostToDevice));
 
-            double *d_totalEnergyLocal;
-            MIGRATE_TO_DEVICE_1D(d_totalEnergyLocal, totalEnergyLocal, numCell, double);
+            CUDAECHK(cudaMemcpy(d_totalEnergyLocal, totalEnergyLocal, numCell * sizeof(double), cudaMemcpyHostToDevice));
 
-            double *d_temperatureLocal;
-            MIGRATE_TO_DEVICE_1D(d_temperatureLocal, temperatureLocal, numCell, double);
-
-            // migrate limit
-            auto initialValueForLimit = new double[numCell];
-            for (int i = 0; i < numCell; ++i) {
-                initialValueForLimit[i] = 1;
-            }
-            double *d_limit;
-            cudaMalloc(&d_limit, numCell * sizeof(double));
+            CUDAECHK(cudaMemcpy(d_temperatureLocal, temperatureLocal, numCell * sizeof(double), cudaMemcpyHostToDevice));
 
             // migrate heatFluxLocal
-            double *d_heatFluxXLocal, *d_heatFluxYLocal, *d_heatFluxZLocal;
-            MIGRATE_TO_DEVICE_1D(d_heatFluxXLocal, heatFluxXLocal, numCell, double);
-            MIGRATE_TO_DEVICE_1D(d_heatFluxYLocal, heatFluxYLocal, numCell, double);
-            MIGRATE_TO_DEVICE_1D(d_heatFluxZLocal, heatFluxZLocal, numCell, double);
+            CUDAECHK(cudaMemcpy(d_heatFluxXLocal, heatFluxXLocal, numCell * sizeof(double), cudaMemcpyHostToDevice));
+            CUDAECHK(cudaMemcpy(d_heatFluxYLocal, heatFluxYLocal, numCell * sizeof(double), cudaMemcpyHostToDevice));
+            CUDAECHK(cudaMemcpy(d_heatFluxZLocal, heatFluxZLocal, numCell * sizeof(double), cudaMemcpyHostToDevice));
 
-            double *d_temperatureOld;
-            double *d_elementFaceArea;
-            MIGRATE_TO_DEVICE_1D(d_temperatureOld, temperatureOld, numCell, double);
-            MIGRATE_TO_DEVICE_1D(d_elementFaceArea, elementFaceArea, numCell * 6, double);
-
-            double *d_eboundLocal;
-            cudaMalloc(&d_eboundLocal, numBand * numDirection * numBound * 2 * sizeof(double));
+            CUDAECHK(cudaMemcpy(d_temperatureOld, temperatureOld, numCell * sizeof(double), cudaMemcpyHostToDevice));
+            CUDAECHK(cudaMemcpy(d_elementFaceArea, elementFaceArea, numCell * 6 * sizeof(double), cudaMemcpyHostToDevice));
 
             // migrate energyDensity, groupVelocity{X,Y,Z}
-            auto d_energyDensityArray = new double *[numDirectionLocal * numBandLocal];
-            auto d_groupVelocityXArray = new double *[numDirectionLocal * numBandLocal];
-            auto d_groupVelocityYArray = new double *[numDirectionLocal * numBandLocal];
-            auto d_groupVelocityZArray = new double *[numDirectionLocal * numBandLocal];
-
-            auto h_groupVelocityX = new double[numCell];
-            auto h_groupVelocityY = new double[numCell];
-            auto h_groupVelocityZ = new double[numCell];
-
-            auto *h_heatCapacity = new double[numCell];
-            auto *h_heatRatio = new double[numCell];
-            auto *h_relaxationTime = new double[numCell];
-            auto d_heatCapacityArray = new double *[numDirectionLocal * numBandLocal];
-            auto d_heatRatioArray = new double *[numDirectionLocal * numBandLocal];
-            auto d_relaxationTimeArray = new double *[numDirectionLocal * numBandLocal];
-
-            auto h_latticeRatio = new double[numCell];
-            auto h_modeWeight = new double[numCell];
-            auto d_latticeRatioArray = new double *[numDirectionLocal * numBandLocal];
-            auto d_modeWeightArray = new double *[numDirectionLocal * numBandLocal];
-
             for (int inf_local = 0; inf_local < numDirectionLocal; inf_local++) {
                 for (int iband_local = 0; iband_local < numBandLocal; ++iband_local) {
                     const int inf = ((inf_local) * numProc + worldRank) % numDirection;
@@ -512,8 +598,7 @@ void Transient::solve(int Use_Backup, double error_temp_limit,
                                       worldRank / numDirection;
 
                     // energyDensity
-                    MIGRATE_TO_DEVICE_1D(d_energyDensityArray[inf_local * numBandLocal + iband_local],
-                                         energyDensity[iband_local][inf_local], numCell, double);
+                    CUDAECHK(cudaMemcpy(d_energyDensityArray[inf_local * numBandLocal + iband_local], energyDensity[iband_local][inf_local], numCell * sizeof(double), cudaMemcpyHostToDevice));
 
                     // groupVelocity
                     for (int i = 0; i < numCell; ++i) {
@@ -521,12 +606,9 @@ void Transient::solve(int Use_Backup, double error_temp_limit,
                         h_groupVelocityY[i] = groupVelocityY[matter[i]][iband][inf];
                         h_groupVelocityZ[i] = groupVelocityZ[matter[i]][iband][inf];
                     }
-                    MIGRATE_TO_DEVICE_1D(d_groupVelocityXArray[inf_local * numBandLocal + iband_local],
-                                         h_groupVelocityX, numCell, double);
-                    MIGRATE_TO_DEVICE_1D(d_groupVelocityYArray[inf_local * numBandLocal + iband_local],
-                                         h_groupVelocityY, numCell, double);
-                    MIGRATE_TO_DEVICE_1D(d_groupVelocityZArray[inf_local * numBandLocal + iband_local],
-                                         h_groupVelocityZ, numCell, double);
+                    CUDAECHK(cudaMemcpy(d_groupVelocityXArray[inf_local * numBandLocal + iband_local], h_groupVelocityX, numCell * sizeof(double), cudaMemcpyHostToDevice));
+                    CUDAECHK(cudaMemcpy(d_groupVelocityYArray[inf_local * numBandLocal + iband_local], h_groupVelocityY, numCell * sizeof(double), cudaMemcpyHostToDevice));
+                    CUDAECHK(cudaMemcpy(d_groupVelocityZArray[inf_local * numBandLocal + iband_local], h_groupVelocityZ, numCell * sizeof(double), cudaMemcpyHostToDevice));
 
                     // heatCapactiy, heatRatio, relaxationTime
                     for (int i = 0; i < numCell; ++i) {
@@ -534,22 +616,17 @@ void Transient::solve(int Use_Backup, double error_temp_limit,
                         h_heatRatio[i] = heatRatio[matter[i]][iband][inf];
                         h_relaxationTime[i] = relaxationTime[matter[i]][iband][inf];
                     }
-                    MIGRATE_TO_DEVICE_1D(d_heatRatioArray[inf_local * numBandLocal + iband_local], h_heatRatio, numCell,
-                                         double);
-                    MIGRATE_TO_DEVICE_1D(d_heatCapacityArray[inf_local * numBandLocal + iband_local], h_heatCapacity,
-                                         numCell, double);
-                    MIGRATE_TO_DEVICE_1D(d_relaxationTimeArray[inf_local * numBandLocal + iband_local],
-                                         h_relaxationTime, numCell, double);
+                    CUDAECHK(cudaMemcpy(d_heatRatioArray[inf_local * numBandLocal + iband_local], h_heatRatio, numCell * sizeof(double), cudaMemcpyHostToDevice));
+                    CUDAECHK(cudaMemcpy(d_heatCapacityArray[inf_local * numBandLocal + iband_local], h_heatCapacity, numCell * sizeof(double), cudaMemcpyHostToDevice));
+                    CUDAECHK(cudaMemcpy(d_relaxationTimeArray[inf_local * numBandLocal + iband_local], h_relaxationTime, numCell * sizeof(double), cudaMemcpyHostToDevice));
 
                     // modeWeight, latticeRatio
                     for (int ie = 0; ie < numCell; ++ie) {
                         h_latticeRatio[ie] = latticeRatio[matter[ie]][iband][inf];
                         h_modeWeight[ie] = modeWeight[matter[ie]][iband][inf];
                     }
-                    MIGRATE_TO_DEVICE_1D(d_latticeRatioArray[inf_local * numBandLocal + iband_local], h_latticeRatio,
-                                         numCell, double);
-                    MIGRATE_TO_DEVICE_1D(d_modeWeightArray[inf_local * numBandLocal + iband_local], h_modeWeight,
-                                         numCell, double);
+                    CUDAECHK(cudaMemcpy(d_latticeRatioArray[inf_local * numBandLocal + iband_local], h_latticeRatio, numCell * sizeof(double), cudaMemcpyHostToDevice));
+                    CUDAECHK(cudaMemcpy(d_modeWeightArray[inf_local * numBandLocal + iband_local], h_modeWeight, numCell * sizeof(double), cudaMemcpyHostToDevice));
                 }
             }
 #endif
@@ -567,11 +644,11 @@ void Transient::solve(int Use_Backup, double error_temp_limit,
                     auto d_groupVelocityY = d_groupVelocityYArray[inf_local * numBandLocal + iband_local];
                     auto d_groupVelocityZ = d_groupVelocityZArray[inf_local * numBandLocal + iband_local];
 
-                    cudaMemcpy(d_limit, initialValueForLimit, numCell * sizeof(double), cudaMemcpyHostToDevice);
+                    CUDAECHK(cudaMemcpy(d_limit, initialValueForLimit, numCell * sizeof(double), cudaMemcpyHostToDevice));
 
                     /* ================================================================ */
                     // migration of _get_explicit_Re
-                    cudaMemset(d_Re, 0, numCell * sizeof(double));
+                    CUDAECHK(cudaMemset(d_Re, 0, numCell * sizeof(double)));
 
                     auto d_heatRatio = d_heatRatioArray[inf_local * numBandLocal + iband_local];
                     auto d_heatCapacity = d_heatCapacityArray[inf_local * numBandLocal + iband_local];
@@ -590,9 +667,9 @@ void Transient::solve(int Use_Backup, double error_temp_limit,
 #else
                     // _get_gradient_larger(0, iband_local, inf_local);
                     // clear gradient{X,Y,Z}
-                    cudaMemset(d_gradientX, 0, numCell * sizeof(double));
-                    cudaMemset(d_gradientY, 0, numCell * sizeof(double));
-                    cudaMemset(d_gradientZ, 0, numCell * sizeof(double));
+                    CUDAECHK(cudaMemset(d_gradientX, 0, numCell * sizeof(double)));
+                    CUDAECHK(cudaMemset(d_gradientY, 0, numCell * sizeof(double)));
+                    CUDAECHK(cudaMemset(d_gradientZ, 0, numCell * sizeof(double)));
                     if (dimension == 1) {
                         calcGetGradientLargerDimension1<<<blockCnt, threadCnt>>>(threadCnt, d_elementFaceBound, d_energyDensity,
                                                                         d_elementVolume,
@@ -611,7 +688,6 @@ void Transient::solve(int Use_Backup, double error_temp_limit,
                                                                         d_energyDensity, d_cellMatrix);
                     }
                     // here Use_limiter is 0
-
 #endif
 
 #ifndef USE_GPU
@@ -640,9 +716,7 @@ void Transient::solve(int Use_Backup, double error_temp_limit,
                                                                d_groupVelocityX, d_groupVelocityY, d_groupVelocityZ,
                                                                d_elementFaceNormX, d_elementFaceNormY,
                                                                d_elementFaceNormZ, d_elementFaceArea, d_elementVolume);
-
 #endif
-
                     auto solve_start = chrono::high_resolution_clock::now();
 
 #ifndef USE_GPU
@@ -730,109 +804,40 @@ void Transient::solve(int Use_Backup, double error_temp_limit,
             }
 
 #ifdef USE_GPU
-            cudaFree(d_elementFaceCenterX);
-            cudaFree(d_elementFaceCenterY);
-            cudaFree(d_elementFaceCenterZ);
+            CUDAECHK(cudaMemcpy(gradientX, d_gradientX, numCell * sizeof(double), cudaMemcpyDeviceToHost));
+            CUDAECHK(cudaMemcpy(gradientY, d_gradientY, numCell * sizeof(double), cudaMemcpyDeviceToHost));
+            CUDAECHK(cudaMemcpy(gradientZ, d_gradientZ, numCell * sizeof(double), cudaMemcpyDeviceToHost));
 
-            cudaFree(d_elementCenterX);
-            cudaFree(d_elementCenterY);
-            cudaFree(d_elementCenterZ);
+            CUDAECHK(cudaMemcpy(Re, d_Re, numCell * sizeof(double), cudaMemcpyDeviceToHost));
 
-            cudaFree(d_elementFaceNormX);
-            cudaFree(d_elementFaceNormY);
-            cudaFree(d_elementFaceNormZ);
+            CUDAECHK(cudaMemcpy(ebound, d_ebound, numBand * numDirection * numBound * 2 * sizeof(double),
+                       cudaMemcpyDeviceToHost));
 
-            delete[] h_boundaryCell;
-            delete[] h_boundaryFace;
-            cudaFree(d_boundaryCell);
-            cudaFree(d_boundaryFace);
-
-            MIGRATE_TO_HOST_1D(gradientX, d_gradientX, numCell, double);
-            MIGRATE_TO_HOST_1D(gradientY, d_gradientY, numCell, double);
-            MIGRATE_TO_HOST_1D(gradientZ, d_gradientZ, numCell, double);
-
-            delete[] h_elementNeighborListSize;
-            delete[] h_elementNeighborList;
-            cudaFree(d_elementNeighborList);
-            cudaFree(d_elementNeighborListSize);
-
-            delete[] h_CellMatrix;
-            cudaFree(d_cellMatrix);
-
-            MIGRATE_TO_HOST_1D(Re, d_Re, numCell, double);
-
-            cudaFree(d_elementFaceBound);
-            cudaFree(d_elementVolume);
-
-            cudaFree(d_elementFaceSize);
-
-            delete[] h_capacityBulk;
-            cudaFree(d_capacityBulk);
-
-            cudaFree(d_boundaryType);
-            cudaFree(d_elementFaceNeighbor);
-
-            MIGRATE_TO_HOST_1D(ebound, d_ebound, numBand * numDirection * numBound * 2, double);
-
-            cudaFree(d_elementHeatSource);
-
-            MIGRATE_TO_HOST_1D(totalEnergyLocal, d_totalEnergyLocal, numCell, double);
-            MIGRATE_TO_HOST_1D(temperatureLocal, d_temperatureLocal, numCell, double);
+            CUDAECHK(cudaMemcpy(totalEnergyLocal, d_totalEnergyLocal, numCell * sizeof(double), cudaMemcpyDeviceToHost));
+            CUDAECHK(cudaMemcpy(temperatureLocal, d_temperatureLocal, numCell * sizeof(double), cudaMemcpyDeviceToHost));
             memcpy(totalEnergy, totalEnergyLocal, numCell * sizeof(double));
             memcpy(temperature, temperatureLocal, numCell * sizeof(double));
 
-            MIGRATE_TO_HOST_1D(limit, d_limit, numCell, double);
+            CUDAECHK(cudaMemcpy(limit, d_limit, numCell * sizeof(double), cudaMemcpyDeviceToHost));
 
-            MIGRATE_TO_HOST_1D(heatFluxXLocal, d_heatFluxXLocal, numCell, double);
-            MIGRATE_TO_HOST_1D(heatFluxYLocal, d_heatFluxYLocal, numCell, double);
-            MIGRATE_TO_HOST_1D(heatFluxZLocal, d_heatFluxZLocal, numCell, double);
+            CUDAECHK(cudaMemcpy(heatFluxXLocal, d_heatFluxXLocal, numCell * sizeof(double), cudaMemcpyDeviceToHost));
+            CUDAECHK(cudaMemcpy(heatFluxYLocal, d_heatFluxYLocal, numCell * sizeof(double), cudaMemcpyDeviceToHost));
+            CUDAECHK(cudaMemcpy(heatFluxZLocal, d_heatFluxZLocal, numCell * sizeof(double), cudaMemcpyDeviceToHost));
             memcpy(heatFluxXGlobal, heatFluxXLocal, numCell * sizeof(double));
             memcpy(heatFluxYGlobal, heatFluxYLocal, numCell * sizeof(double));
             memcpy(heatFluxZGlobal, heatFluxZLocal, numCell * sizeof(double));
 
-            cudaFree(d_temperatureOld);
-            cudaFree(d_elementFaceArea);
-
-            MIGRATE_TO_HOST_1D(eboundLocal, d_eboundLocal, numBand * numDirection * numBound * 2, double);
+            CUDAECHK(cudaMemcpy(eboundLocal, d_eboundLocal, numBand * numDirection * numBound * 2 * sizeof(double),
+                       cudaMemcpyDeviceToHost));
 
             for (int inf_local = 0; inf_local < numDirectionLocal; inf_local++) {
                 for (int iband_local = 0; iband_local < numBandLocal; ++iband_local) {
                     // energyDensity
-                    MIGRATE_TO_HOST_1D(energyDensity[iband_local][inf_local],
-                                       d_energyDensityArray[inf_local * numBandLocal + iband_local], numCell, double);
-                    // groupVelocity
-                    cudaFree(d_groupVelocityXArray[inf_local * numBandLocal + iband_local]);
-                    cudaFree(d_groupVelocityYArray[inf_local * numBandLocal + iband_local]);
-                    cudaFree(d_groupVelocityZArray[inf_local * numBandLocal + iband_local]);
-                    // heatRatio, heatCapacity and relaxationTime
-                    cudaFree(d_heatRatioArray[inf_local * numBandLocal + iband_local]);
-                    cudaFree(d_heatCapacityArray[inf_local * numBandLocal + iband_local]);
-                    cudaFree(d_relaxationTimeArray[inf_local * numBandLocal + iband_local]);
-                    // latticeRatio, modeWeight
-                    cudaFree(d_latticeRatioArray);
-                    cudaFree(d_modeWeightArray);
+                    CUDAECHK(cudaMemcpy(energyDensity[iband_local][inf_local],
+                               d_energyDensityArray[inf_local * numBandLocal + iband_local], numCell * sizeof(double),
+                               cudaMemcpyDeviceToHost));
                 }
             }
-            delete[] d_energyDensityArray;
-
-            delete[] d_groupVelocityXArray;
-            delete[] d_groupVelocityYArray;
-            delete[] d_groupVelocityZArray;
-
-            delete[] h_groupVelocityX;
-            delete[] h_groupVelocityY;
-            delete[] h_groupVelocityZ;
-
-            delete[] h_heatRatio;
-            delete[] h_heatCapacity;
-            delete[] h_relaxationTime;
-            delete[] d_heatRatioArray;
-            delete[] d_heatCapacityArray;
-            delete[] d_relaxationTimeArray;
-
-            delete[] h_latticeRatio;
-            delete[] h_modeWeight;
-            delete[] d_latticeRatioArray;
 #endif
 
             auto set_bound_start = chrono::high_resolution_clock::now();
@@ -907,6 +912,105 @@ void Transient::solve(int Use_Backup, double error_temp_limit,
             // cout<<nt<<endl;
             MPI_Barrier(MPI_COMM_WORLD);
         }
+
+#ifdef USE_GPU
+        CUDAECHK(cudaFree(d_elementFaceCenterX));
+        CUDAECHK(cudaFree(d_elementFaceCenterY));
+        CUDAECHK(cudaFree(d_elementFaceCenterZ));
+
+        CUDAECHK(cudaFree(d_elementCenterX));
+        CUDAECHK(cudaFree(d_elementCenterY));
+        CUDAECHK(cudaFree(d_elementCenterZ));
+
+        CUDAECHK(cudaFree(d_elementFaceNormX));
+        CUDAECHK(cudaFree(d_elementFaceNormY));
+        CUDAECHK(cudaFree(d_elementFaceNormZ));
+
+        delete[] h_boundaryCell;
+        delete[] h_boundaryFace;
+        CUDAECHK(cudaFree(d_boundaryCell));
+        CUDAECHK(cudaFree(d_boundaryFace));
+
+        CUDAECHK(cudaFree(d_gradientX));
+        CUDAECHK(cudaFree(d_gradientY));
+        CUDAECHK(cudaFree(d_gradientZ));
+
+        delete[] h_elementNeighborListSize;
+        delete[] h_elementNeighborList;
+        CUDAECHK(cudaFree(d_elementNeighborList));
+        CUDAECHK(cudaFree(d_elementNeighborListSize));
+
+        delete[] h_CellMatrix;
+        CUDAECHK(cudaFree(d_cellMatrix));
+
+        CUDAECHK(cudaFree(d_Re));
+
+        CUDAECHK(cudaFree(d_elementFaceBound));
+        CUDAECHK(cudaFree(d_elementVolume));
+
+        CUDAECHK(cudaFree(d_elementFaceSize));
+
+        delete[] h_capacityBulk;
+        CUDAECHK(cudaFree(d_capacityBulk));
+
+        CUDAECHK(cudaFree(d_boundaryType));
+        CUDAECHK(cudaFree(d_elementFaceNeighbor));
+        CUDAECHK(cudaFree(d_ebound));
+
+        CUDAECHK(cudaFree(d_elementHeatSource));
+
+        CUDAECHK(cudaFree(d_totalEnergyLocal));
+        CUDAECHK(cudaFree(d_temperatureLocal));
+
+        CUDAECHK(cudaFree(d_limit));
+
+        CUDAECHK(cudaFree(d_heatFluxXLocal));
+        CUDAECHK(cudaFree(d_heatFluxYLocal));
+        CUDAECHK(cudaFree(d_heatFluxZLocal));
+
+        CUDAECHK(cudaFree(d_temperatureOld));
+        CUDAECHK(cudaFree(d_elementFaceArea));
+
+        for (int inf_local = 0; inf_local < numDirectionLocal; inf_local++) {
+            for (int iband_local = 0; iband_local < numBandLocal; ++iband_local) {
+                // energyDensity
+                CUDAECHK(cudaFree(d_energyDensityArray[inf_local * numBandLocal + iband_local]));
+                // groupVelocity
+                CUDAECHK(cudaFree(d_groupVelocityXArray[inf_local * numBandLocal + iband_local]));
+                CUDAECHK(cudaFree(d_groupVelocityYArray[inf_local * numBandLocal + iband_local]));
+                CUDAECHK(cudaFree(d_groupVelocityZArray[inf_local * numBandLocal + iband_local]));
+                // heatRatio, heatCapacity and relaxationTime
+                CUDAECHK(cudaFree(d_heatRatioArray[inf_local * numBandLocal + iband_local]));
+                CUDAECHK(cudaFree(d_heatCapacityArray[inf_local * numBandLocal + iband_local]));
+                CUDAECHK(cudaFree(d_relaxationTimeArray[inf_local * numBandLocal + iband_local]));
+                // latticeRatio, modeWeight
+                CUDAECHK(cudaFree(d_latticeRatioArray[inf_local * numBandLocal + iband_local]));
+                CUDAECHK(cudaFree(d_modeWeightArray[inf_local * numBandLocal + iband_local]));
+            }
+        }
+
+        delete[] d_energyDensityArray;
+
+        delete[] d_groupVelocityXArray;
+        delete[] d_groupVelocityYArray;
+        delete[] d_groupVelocityZArray;
+
+        delete[] h_groupVelocityX;
+        delete[] h_groupVelocityY;
+        delete[] h_groupVelocityZ;
+
+        delete[] h_heatRatio;
+        delete[] h_heatCapacity;
+        delete[] h_relaxationTime;
+        delete[] d_heatRatioArray;
+        delete[] d_heatCapacityArray;
+        delete[] d_relaxationTimeArray;
+
+        delete[] h_latticeRatio;
+        delete[] h_modeWeight;
+        delete[] d_latticeRatioArray;
+        delete[] d_modeWeightArray;
+#endif
         outputT.close();
     }
     MPI_Barrier(MPI_COMM_WORLD);

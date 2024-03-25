@@ -40,3 +40,18 @@
     } \
     cudaFree(devicePtr);                           \
     devicePtr = nullptr;
+
+inline void cudaErrorCheck(cudaError code, const char *file = nullptr, const int line = 0, bool abort = true) {
+    if (code != cudaSuccess) {
+        if (file != nullptr) {
+            std::cerr << "CUDA error: " << file << ' ' << line << ' '
+                      << cudaGetErrorString(code) << '\n';
+        } else {
+            std::cerr << "CUDA error: " << cudaGetErrorString(code) << '\n';
+        }
+        if (abort) exit(code);
+    }
+}
+
+// CUDA Error Check
+#define CUDAECHK(ans) { cudaErrorCheck((ans), __FILE__, __LINE__); }
