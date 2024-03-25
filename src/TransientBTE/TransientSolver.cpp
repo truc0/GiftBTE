@@ -333,6 +333,12 @@ void Transient::solve(int Use_Backup, double error_temp_limit,
     if (use_TDTR == 0) {
         ofstream outputT("TTG.dat");
         std::cout << "IMPT::numCell " << numCell << std::endl;
+        int blockCnt = 1;
+        int threadCnt = numCell;
+        while (threadCnt % 2 == 0 && blockCnt < threadCnt) {
+            threadCnt /= 2;
+            blockCnt *= 2;
+        }
         for (int nt = 0; nt < Num_Max_Iter; ++nt) {
             total_iter_time = chrono::microseconds(0);
             get_gradient_time = chrono::microseconds(0);
@@ -421,7 +427,7 @@ void Transient::solve(int Use_Backup, double error_temp_limit,
             double *d_Re;
             cudaMalloc(&d_Re, numCell * sizeof(double));
 
-            // migrate elementFaceBound and elementVolumn
+            // migrate elementFaceBound and elementVolume
             int *d_elementFaceBound;
             double *d_elementVolume;
             MIGRATE_TO_DEVICE_1D(d_elementFaceBound, elementFaceBound, numCell * 6, int);
@@ -588,17 +594,17 @@ void Transient::solve(int Use_Backup, double error_temp_limit,
                     cudaMemset(d_gradientY, 0, numCell * sizeof(double));
                     cudaMemset(d_gradientZ, 0, numCell * sizeof(double));
                     if (dimension == 1) {
-                        calcGetGradientLargerDimension1<<<1, numCell>>>(d_elementFaceBound, d_energyDensity,
+                        calcGetGradientLargerDimension1<<<blockCnt, threadCnt>>>(threadCnt, d_elementFaceBound, d_energyDensity,
                                                                         d_elementVolume,
                                                                         d_gradientX);
                     } else if (dimension == 2) {
-                        calcGetGradientLargerDimension2<<<1, numCell>>>(L_x, numCell, d_gradientX, d_gradientY,
+                        calcGetGradientLargerDimension2<<<blockCnt, threadCnt>>>(threadCnt, L_x, numCell, d_gradientX, d_gradientY,
                                                                         d_gradientZ,
                                                                         d_elementNeighborList,
                                                                         d_elementNeighborListSize, d_energyDensity,
                                                                         d_cellMatrix);
                     } else if (dimension == 3) {
-                        calcGetGradientLargerDimension3<<<1, numCell>>>(L_x, numCell, d_gradientX, d_gradientY,
+                        calcGetGradientLargerDimension3<<<blockCnt, threadCnt>>>(threadCnt, L_x, numCell, d_gradientX, d_gradientY,
                                                                         d_gradientZ,
                                                                         d_elementNeighborList,
                                                                         d_elementNeighborListSize,
@@ -617,7 +623,7 @@ void Transient::solve(int Use_Backup, double error_temp_limit,
 #else
                     const auto deltaTime = deltaT;
                     const auto itime = nt;
-                    calcGetExplicitRe<<<1, numCell>>>(use_TDTR, deltaTime, d_elementFaceSize, repetition_frequency,
+                    calcGetExplicitRe<<<blockCnt, threadCnt>>>(threadCnt, use_TDTR, deltaTime, d_elementFaceSize, repetition_frequency,
                                                       modulation_frequency, pulse_time, itime, d_Re,
                                                       d_groupVelocityX, d_groupVelocityY, d_groupVelocityZ,
                                                       d_elementFaceNormX, d_elementFaceNormY, d_elementFaceNormZ,
@@ -653,7 +659,7 @@ void Transient::solve(int Use_Backup, double error_temp_limit,
                                 deltaT * Re[icell];
                     }
 #else
-                    calcEnergyDensity<<<1, numCell>>>(deltaT, d_energyDensity, d_Re, d_relaxationTime);
+                    calcEnergyDensity<<<blockCnt, threadCnt>>>(threadCnt, deltaT, d_energyDensity, d_Re, d_relaxationTime);
 #endif
 
                     auto solve_end = chrono::high_resolution_clock::now();
@@ -690,15 +696,15 @@ void Transient::solve(int Use_Backup, double error_temp_limit,
                     _get_total_energy(iband_local, inf_local);
                     _get_heat_flux(iband_local, inf_local);
 #else
-                    calcRecoverTemperature<<<1, numCell>>>(d_temperatureLocal, d_latticeRatio, d_energyDensity,
+                    calcRecoverTemperature<<<blockCnt, threadCnt>>>(threadCnt, d_temperatureLocal, d_latticeRatio, d_energyDensity,
                                                            d_modeWeight,
                                                            d_heatCapacity);
-                    calcGetTotalEnergy<<<1, numCell>>>(d_totalEnergyLocal, d_energyDensity, d_modeWeight,
+                    calcGetTotalEnergy<<<blockCnt, threadCnt>>>(threadCnt, d_totalEnergyLocal, d_energyDensity, d_modeWeight,
                                                        d_capacityBulk);
 
-                    calcGetHeatFlux<<<1, numCell>>>(d_heatFluxXLocal, d_groupVelocityX, d_modeWeight, d_energyDensity);
-                    calcGetHeatFlux<<<1, numCell>>>(d_heatFluxYLocal, d_groupVelocityY, d_modeWeight, d_energyDensity);
-                    calcGetHeatFlux<<<1, numCell>>>(d_heatFluxZLocal, d_groupVelocityZ, d_modeWeight, d_energyDensity);
+                    calcGetHeatFlux<<<blockCnt, threadCnt>>>(threadCnt, d_heatFluxXLocal, d_groupVelocityX, d_modeWeight, d_energyDensity);
+                    calcGetHeatFlux<<<blockCnt, threadCnt>>>(threadCnt, d_heatFluxYLocal, d_groupVelocityY, d_modeWeight, d_energyDensity);
+                    calcGetHeatFlux<<<blockCnt, threadCnt>>>(threadCnt, d_heatFluxZLocal, d_groupVelocityZ, d_modeWeight, d_energyDensity);
 #endif
 
 #ifndef USE_GPU

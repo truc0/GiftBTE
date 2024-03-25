@@ -801,48 +801,12 @@ void Transient::_recover_temperature(int iband_local, int inf_local) const {
     int inf = ((inf_local) * numProc + worldRank) % numDirection;
     int iband = iband_local * (ceil(double(numProc) / double(numDirection))) +
                 worldRank / numDirection;
-#ifndef USE_GPU
     for (int ie = 0; ie < numCell; ++ie) {
         temperatureLocal[ie] += latticeRatio[matter[ie]][iband][inf] *
                                 energyDensity[iband_local][inf_local][ie] *
                                 modeWeight[matter[ie]][iband][inf] /
                                 heatCapacity[matter[ie]][iband][inf];
     }
-#else
-    double *d_temperature, *d_latticeRatio, *d_energyDensity, *d_modeWeight,
-            *d_heatCapacity;
-
-    // setup
-    MIGRATE_TO_DEVICE_1D(d_temperature, temperatureLocal, numCell, double);
-    MIGRATE_TO_DEVICE_1D(d_energyDensity, energyDensity[iband_local][inf_local], numCell, double);
-
-    // migrate d_latticeRatio, d_modeWeight, d_heatCapacity
-    auto *h_latticeRatio = new double[numCell];
-    auto *h_modeWeight = new double[numCell];
-    auto *h_heatCapacity = new double[numCell];
-
-    for (int ie = 0; ie < numCell; ++ie) {
-        h_latticeRatio[ie] = latticeRatio[matter[ie]][iband][inf];
-        h_modeWeight[ie] = modeWeight[matter[ie]][iband][inf];
-        h_heatCapacity[ie] = heatCapacity[matter[ie]][iband][inf];
-    }
-    MIGRATE_TO_DEVICE_1D(d_latticeRatio, h_latticeRatio, numCell, double);
-    MIGRATE_TO_DEVICE_1D(d_modeWeight, h_modeWeight, numCell, double);
-    MIGRATE_TO_DEVICE_1D(d_heatCapacity, h_heatCapacity, numCell, double);
-
-    calcRecoverTemperature<<<1, numCell>>>(d_temperature, d_latticeRatio, d_energyDensity, d_modeWeight,
-                                           d_heatCapacity);
-
-    // cleanup
-    MIGRATE_TO_HOST_1D(temperatureLocal, d_temperature, numCell, double);
-    cudaFree(d_energyDensity);
-    cudaFree(d_latticeRatio);
-    cudaFree(d_modeWeight);
-    cudaFree(d_heatCapacity);
-    delete[] h_latticeRatio;
-    delete[] h_modeWeight;
-    delete[] h_heatCapacity;
-#endif
 }
 
 void Transient::_get_total_energy(int iband_local, int inf_local) const {
