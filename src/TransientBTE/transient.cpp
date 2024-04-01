@@ -167,6 +167,7 @@ Transient::Transient(BTEMesh *mesh, BTEBoundaryCondition *bcs, BTEBand *bands,
                      double deltaT, double totalT, int use_TDTR,
                      double pulse_time, double repetition_frequency,
                      double modulation_frequency, double xy_r) {
+
     this->deltaT = deltaT;
     this->totalT = totalT;
     this->numProc = num_proc;
@@ -248,7 +249,12 @@ Transient::Transient(BTEMesh *mesh, BTEBoundaryCondition *bcs, BTEBand *bands,
     }
     energyDensityVertex = new double[numNode * numofMatter];
     ebound = new double[numBand * numDirection * numBound * 2];
+#ifdef USE_GPU
+    // allocate a large enough space
+    eboundLocal = new double[numBand * numDirection * numBound * 2];
+#else
     eboundLocal = new double[numBandLocal * mesh->Boundaries.size() * 2];
+#endif
     temperature = new double[numCell];
     temperatureLocal = new double[numCell];
     temperatureOld = new double[numCell];
