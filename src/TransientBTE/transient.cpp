@@ -160,13 +160,6 @@ Transient::~Transient() {
     delete[] directionX;
     delete[] directionY;
     delete[] directionZ;
-
-    // cout << "~StaticBTESynthetic is activated !!" << endl;
-#ifdef USE_GPU
-
-#else
-
-#endif
 }
 
 Transient::Transient(BTEMesh *mesh, BTEBoundaryCondition *bcs, BTEBand *bands,
