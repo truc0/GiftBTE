@@ -5,7 +5,7 @@
 
 // <<<blockCnt, threadCnt>>>
 __global__ void
-calcEnergyDensity(int threadCnt, double deltaT, double *d_energyDensity, const double *d_Re, const double *d_relaxationTime) {
+calcEnergyDensity(int threadCnt, int totalThreads, double deltaT, double *d_energyDensity, const double *d_Re, const double *d_relaxationTime) {
     const auto iCell = blockIdx.x * threadCnt + threadIdx.x;
     d_energyDensity[iCell] = d_energyDensity[iCell] * (1 - deltaT / d_relaxationTime[iCell]) - deltaT * d_Re[iCell];
 }
@@ -13,36 +13,40 @@ calcEnergyDensity(int threadCnt, double deltaT, double *d_energyDensity, const d
 
 // <<<blockCnt, threadCnt>>>
 __global__ void
-calcRecoverTemperature(int threadCnt, double *d_temperature, const double *d_latticeRatio, const double *d_energyDensity,
+calcRecoverTemperature(int threadCnt, int totalThreads, double *d_temperature, const double *d_latticeRatio, const double *d_energyDensity,
                        const double *d_modeWeight, const double *d_heatCapacity) {
     const auto ie = blockIdx.x * threadCnt + threadIdx.x;
+    if (ie >= totalThreads) return;
     d_temperature[ie] += d_latticeRatio[ie] * d_energyDensity[ie] * d_modeWeight[ie] / d_heatCapacity[ie];
 }
 
 
 // <<<blockCnt, threadCnt>>>
 __global__ void
-calcGetTotalEnergy(int threadCnt, double *d_totalEnergy, const double *d_energyDensity, const double *d_modeWeight,
+calcGetTotalEnergy(int threadCnt, int totalThreads, double *d_totalEnergy, const double *d_energyDensity, const double *d_modeWeight,
                    const double *d_capacityBulk) {
     const auto ie = blockIdx.x * threadCnt + threadIdx.x;
+    if (ie >= totalThreads) return;
     d_totalEnergy[ie] += d_energyDensity[ie] * d_modeWeight[ie] / d_capacityBulk[ie];
 }
 
 
 // <<<blockCnt, threadCnt>>>
 __global__ void
-calcGetHeatFlux(int threadCnt, double *d_heatFlux, const double *d_groupVelocity, const double *d_modeWeight,
+calcGetHeatFlux(int threadCnt, int totalThreads, double *d_heatFlux, const double *d_groupVelocity, const double *d_modeWeight,
                 const double *d_energyDensity) {
     const auto ie = blockIdx.x * threadCnt + threadIdx.x;
+    if (ie >= totalThreads) return;
     d_heatFlux[ie] += d_groupVelocity[ie] * d_modeWeight[ie] * d_energyDensity[ie];
 }
 
 
 // <<<blockCnt, threadCnt>>>
 __global__ void
-calcGetGradientLargerDimension1(int threadCnt, const int *d_elementFaceBound, const double *d_energyDensity,
+calcGetGradientLargerDimension1(int threadCnt, int totalThreads, const int *d_elementFaceBound, const double *d_energyDensity,
                                 const double *d_elementVolume, double *d_gradientX) {
     const auto ie = blockIdx.x * threadCnt + threadIdx.x;
+    if (ie >= totalThreads) return;
     if (d_elementFaceBound[ie * 6] == -1 &&
         d_elementFaceBound[ie * 6 + 1] == -1) {
         double s1 = (d_energyDensity[ie] - d_energyDensity[ie - 1]) /
@@ -80,11 +84,12 @@ calcGetGradientLargerDimension1(int threadCnt, const int *d_elementFaceBound, co
 
 // <<<blockCnt, threadCnt>>>
 __global__ void
-calcGetGradientLargerDimension2(int threadCnt, double L_x, int numCell,
+calcGetGradientLargerDimension2(int threadCnt, int totalThreads, double L_x, int numCell,
                                 double *d_gradientX, double *d_gradientY, double *d_gradientZ,
                                 const int *d_elementNeighborList, const int *d_elementNeighborListSize,
                                 const double *d_energyDensity, const double *d_cellMatrix) {
     const auto i = blockIdx.x * threadCnt + threadIdx.x;
+    if (i >= totalThreads) return;
     if (d_elementNeighborListSize[i] < 3) {
         d_gradientX[i] = 0;
         d_gradientY[i] = 0;
@@ -119,10 +124,11 @@ calcGetGradientLargerDimension2(int threadCnt, double L_x, int numCell,
 
 // <<<blockCnt, threadCnt>>>
 __global__ void
-calcGetGradientLargerDimension3(int threadCnt, double L_x, int numCell, double *d_gradientX, double *d_gradientY, double *d_gradientZ,
+calcGetGradientLargerDimension3(int threadCnt, int totalThreads, double L_x, int numCell, double *d_gradientX, double *d_gradientY, double *d_gradientZ,
                                 const int *d_elementNeighborList, const int *d_elementNeighborListSize,
                                 const double *d_energyDensity, const double *d_cellMatrix) {
     const auto i = blockIdx.x * threadCnt + threadIdx.x;
+    if (i >= totalThreads) return;
 
     if (d_elementNeighborListSize[i] < 3) {
         d_gradientX[i] = 0;
@@ -212,7 +218,7 @@ calcGetGradientLargerUseLimit(int magic, double *d_limit, const double *d_ebound
 
 // <<<blockCnt, threadCnt>>>
 __global__ void
-calcGetExplicitRe(int threadCnt, int use_TDTR, double deltaTime, const int *d_elementFaceSize, double repetition_frequency,
+calcGetExplicitRe(int threadCnt, int totalThreads, int use_TDTR, double deltaTime, const int *d_elementFaceSize, double repetition_frequency,
                   double modulation_frequency, double pulse_time, double itime, double *d_Re,
                   const double *d_groupVelocityX, const double *d_groupVelocityY, const double *d_groupVelocityZ,
                   const double *d_elementFaceNormX, const double *d_elementFaceNormY, const double *d_elementFaceNormZ,
@@ -224,6 +230,8 @@ calcGetExplicitRe(int threadCnt, int use_TDTR, double deltaTime, const int *d_el
                   const int *d_elementFaceNeighbor, const double *d_elementHeatSource, const double *d_heatRatio,
                   const double *d_heatCapacity, const double *d_relaxationTime, const double *d_temperatureOld) {
     const auto ie = blockIdx.x * threadCnt + threadIdx.x;
+    if (ie >= totalThreads) return;
+
     for (int jface = 0; jface < d_elementFaceSize[ie]; ++jface) {
         double dotproduct = d_groupVelocityX[ie] * d_elementFaceNormX[jface + ie * 6] +
                             d_groupVelocityY[ie] * d_elementFaceNormY[jface + ie * 6] +

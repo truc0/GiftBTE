@@ -10,11 +10,21 @@ set(CMAKE_ARCHIVE_OUTPUT_DIRECTORY ${PROJECT_SOURCE_DIR}/lib)
 option(USE_GPU "compile as GPU version" off)
 option(USE_MRM "compile as Memory_reduced_version" off)
 option(USE_TIME "time each process" off)
+option(USE_OPTIM "use optimization" off)
+option(DEBUG "compile with -g option" off)
 
 if(DEFINED CMAKE_BUILD_TYPE)
     SET (CMAKE_BUILD_TYPE "${CMAKE_BUILD_TYPE}")
 else()
     SET (CMAKE_BUILD_TYPE Release)
+endif()
+
+if (USE_OPTIM)
+    add_compile_options(-O3)
+endif()
+
+if (DEBUG)
+    add_compile_options(-g)
 endif()
 
 if (USE_GPU)

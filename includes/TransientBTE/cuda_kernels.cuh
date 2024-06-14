@@ -5,31 +5,31 @@
 
 
 __global__ void
-calcEnergyDensity(int threadCnt, double deltaT, double *d_energyDensity, const double *d_Re, const double *d_relaxationTime);
+calcEnergyDensity(int threadCnt, int totalThreads, double deltaT, double *d_energyDensity, const double *d_Re, const double *d_relaxationTime);
 
 __global__ void
-calcRecoverTemperature(int threadCnt, double *d_temperature, const double *d_latticeRatio, const double *d_energyDensity,
+calcRecoverTemperature(int threadCnt, int totalThreads, double *d_temperature, const double *d_latticeRatio, const double *d_energyDensity,
                        const double *d_modeWeight, const double *d_heatCapacity);
 
 __global__ void
-calcGetTotalEnergy(int threadCnt, double *d_totalEnergy, const double *d_energyDensity, const double *d_modeWeight,
+calcGetTotalEnergy(int threadCnt, int totalThreads, double *d_totalEnergy, const double *d_energyDensity, const double *d_modeWeight,
                    const double *d_capacityBulk);
 
 __global__ void
-calcGetHeatFlux(int threadCnt, double *d_heatFlux, const double *d_groupVelocity, const double *d_modeWeight,
+calcGetHeatFlux(int threadCnt, int totalThreads, double *d_heatFlux, const double *d_groupVelocity, const double *d_modeWeight,
                 const double *d_energyDensity);
 
 __global__ void
-calcGetGradientLargerDimension1(int threadCnt, const int *d_elementFaceBound, const double *d_energyDensity,
+calcGetGradientLargerDimension1(int threadCnt, int totalThreads, const int *d_elementFaceBound, const double *d_energyDensity,
                                 const double *d_elementVolume, double *d_gradientX);
 
 __global__ void
-calcGetGradientLargerDimension2(int threadCnt, double L_x, int numCell, double *d_gradientX, double *d_gradientY, double *d_gradientZ,
+calcGetGradientLargerDimension2(int threadCnt, int totalThreads, double L_x, int numCell, double *d_gradientX, double *d_gradientY, double *d_gradientZ,
                                 const int *d_elementNeighborList, const int *d_elementNeighborListSize,
                                 const double *d_energyDensity, const double *d_cellMatrix);
 
 __global__ void
-calcGetGradientLargerDimension3(int threadCnt, double L_x, int numCell, double *d_gradientX, double *d_gradientY, double *d_gradientZ,
+calcGetGradientLargerDimension3(int threadCnt, int totalThreads, double L_x, int numCell, double *d_gradientX, double *d_gradientY, double *d_gradientZ,
                                 const int *d_elementNeighborList, const int *d_elementNeighborListSize,
                                 const double *d_energyDensity, const double *d_cellMatrix);
 
@@ -46,7 +46,7 @@ calcGetGradientLargerUseLimit(int magic, double *d_limit, const double *d_ebound
                               const double *d_elementFaceNormZ);
 
 __global__ void
-calcGetExplicitRe(int threadCnt, int use_TDTR, double deltaTime, const int *d_elementFaceSize, double repetition_frequency,
+calcGetExplicitRe(int threadCnt, int totalThreads, int use_TDTR, double deltaTime, const int *d_elementFaceSize, double repetition_frequency,
                   double modulation_frequency, double pulse_time, double itime, double *d_Re,
                   const double *d_groupVelocityX, const double *d_groupVelocityY, const double *d_groupVelocityZ,
                   const double *d_elementFaceNormX, const double *d_elementFaceNormY, const double *d_elementFaceNormZ,

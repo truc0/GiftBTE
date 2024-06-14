@@ -335,12 +335,20 @@ void Transient::solve(int Use_Backup, double error_temp_limit,
         ofstream outputT("TTG.dat");
         std::cout << "IMPT::numCell " << numCell << std::endl;
         std::cout << "IMPT::numBound " << numBound << std::endl;
-        int blockCnt = 1;
-        int threadCnt = numCell;
-        while (threadCnt % 2 == 0 && blockCnt < threadCnt) {
-            threadCnt /= 2;
-            blockCnt *= 2;
-        }
+
+//        int blockCnt = 1;
+//        int threadCnt = numCell;
+//        int totalThreads = numCell;
+//        while (threadCnt % 2 == 0 && blockCnt < threadCnt) {
+//            threadCnt /= 2;
+//            blockCnt *= 2;
+//        }
+        int blockCnt = 32;
+        int threadCnt = 16;
+        int totalThreads = numCell;
+
+        std::cout << "CUDA blockCnt\t" << blockCnt << std::endl;
+        std::cout << "CUDA threadCnt\t" << threadCnt << std::endl;
 
 #ifdef USE_GPU
         cudaStream_t stream;
@@ -678,17 +686,17 @@ void Transient::solve(int Use_Backup, double error_temp_limit,
                     CUDAECHK(cudaMemset(d_gradientY, 0, numCell * sizeof(double)));
                     CUDAECHK(cudaMemset(d_gradientZ, 0, numCell * sizeof(double)));
                     if (dimension == 1) {
-                        calcGetGradientLargerDimension1<<<blockCnt, threadCnt>>>(threadCnt, d_elementFaceBound, d_energyDensity,
+                        calcGetGradientLargerDimension1<<<blockCnt, threadCnt>>>(threadCnt, totalThreads, d_elementFaceBound, d_energyDensity,
                                                                         d_elementVolume,
                                                                         d_gradientX);
                     } else if (dimension == 2) {
-                        calcGetGradientLargerDimension2<<<blockCnt, threadCnt>>>(threadCnt, L_x, numCell, d_gradientX, d_gradientY,
+                        calcGetGradientLargerDimension2<<<blockCnt, threadCnt>>>(threadCnt, totalThreads, L_x, numCell, d_gradientX, d_gradientY,
                                                                         d_gradientZ,
                                                                         d_elementNeighborList,
                                                                         d_elementNeighborListSize, d_energyDensity,
                                                                         d_cellMatrix);
                     } else if (dimension == 3) {
-                        calcGetGradientLargerDimension3<<<blockCnt, threadCnt>>>(threadCnt, L_x, numCell, d_gradientX, d_gradientY,
+                        calcGetGradientLargerDimension3<<<blockCnt, threadCnt>>>(threadCnt, totalThreads, L_x, numCell, d_gradientX, d_gradientY,
                                                                         d_gradientZ,
                                                                         d_elementNeighborList,
                                                                         d_elementNeighborListSize,
@@ -706,7 +714,7 @@ void Transient::solve(int Use_Backup, double error_temp_limit,
 #else
                     const auto deltaTime = deltaT;
                     const auto itime = nt;
-                    calcGetExplicitRe<<<blockCnt, threadCnt>>>(threadCnt, use_TDTR, deltaTime, d_elementFaceSize, repetition_frequency,
+                    calcGetExplicitRe<<<blockCnt, threadCnt>>>(threadCnt, totalThreads, use_TDTR, deltaTime, d_elementFaceSize, repetition_frequency,
                                                       modulation_frequency, pulse_time, itime, d_Re,
                                                       d_groupVelocityX, d_groupVelocityY, d_groupVelocityZ,
                                                       d_elementFaceNormX, d_elementFaceNormY, d_elementFaceNormZ,
@@ -740,7 +748,7 @@ void Transient::solve(int Use_Backup, double error_temp_limit,
                                 deltaT * Re[icell];
                     }
 #else
-                    calcEnergyDensity<<<blockCnt, threadCnt>>>(threadCnt, deltaT, d_energyDensity, d_Re, d_relaxationTime);
+                    calcEnergyDensity<<<blockCnt, threadCnt>>>(threadCnt, totalThreads, deltaT, d_energyDensity, d_Re, d_relaxationTime);
 #endif
 
                     auto solve_end = chrono::high_resolution_clock::now();
@@ -777,15 +785,15 @@ void Transient::solve(int Use_Backup, double error_temp_limit,
                     _get_total_energy(iband_local, inf_local);
                     _get_heat_flux(iband_local, inf_local);
 #else
-                    calcRecoverTemperature<<<blockCnt, threadCnt>>>(threadCnt, d_temperatureLocal, d_latticeRatio, d_energyDensity,
+                    calcRecoverTemperature<<<blockCnt, threadCnt>>>(threadCnt, totalThreads, d_temperatureLocal, d_latticeRatio, d_energyDensity,
                                                            d_modeWeight,
                                                            d_heatCapacity);
-                    calcGetTotalEnergy<<<blockCnt, threadCnt>>>(threadCnt, d_totalEnergyLocal, d_energyDensity, d_modeWeight,
+                    calcGetTotalEnergy<<<blockCnt, threadCnt>>>(threadCnt, totalThreads, d_totalEnergyLocal, d_energyDensity, d_modeWeight,
                                                        d_capacityBulk);
 
-                    calcGetHeatFlux<<<blockCnt, threadCnt>>>(threadCnt, d_heatFluxXLocal, d_groupVelocityX, d_modeWeight, d_energyDensity);
-                    calcGetHeatFlux<<<blockCnt, threadCnt>>>(threadCnt, d_heatFluxYLocal, d_groupVelocityY, d_modeWeight, d_energyDensity);
-                    calcGetHeatFlux<<<blockCnt, threadCnt>>>(threadCnt, d_heatFluxZLocal, d_groupVelocityZ, d_modeWeight, d_energyDensity);
+                    calcGetHeatFlux<<<blockCnt, threadCnt>>>(threadCnt, totalThreads, d_heatFluxXLocal, d_groupVelocityX, d_modeWeight, d_energyDensity);
+                    calcGetHeatFlux<<<blockCnt, threadCnt>>>(threadCnt, totalThreads, d_heatFluxYLocal, d_groupVelocityY, d_modeWeight, d_energyDensity);
+                    calcGetHeatFlux<<<blockCnt, threadCnt>>>(threadCnt, totalThreads, d_heatFluxZLocal, d_groupVelocityZ, d_modeWeight, d_energyDensity);
 #endif
 
 #ifndef USE_GPU
